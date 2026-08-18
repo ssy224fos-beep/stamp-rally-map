@@ -1,0 +1,232 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Yu Gothic", "Meiryo", sans-serif;
+  background: #f4f6f8;
+  color: #1f2937;
+}
+
+body {
+  overflow: hidden;
+}
+
+.app-header {
+  height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: #ffffff;
+  border-bottom: 1px solid #dbe2ea;
+  gap: 24px;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.app-header p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.overall-progress {
+  width: min(320px, 34vw);
+}
+
+.overall-progress > span {
+  display: block;
+  text-align: right;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.progress-track {
+  width: 100%;
+  height: 10px;
+  background: #e5e7eb;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  width: 0%;
+  height: 100%;
+  background: #16a34a;
+  transition: width 0.25s ease;
+}
+
+.app-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  height: calc(100vh - 84px);
+}
+
+.map-panel,
+#map {
+  width: 100%;
+  height: 100%;
+}
+
+.sidebar {
+  overflow-y: auto;
+  background: #ffffff;
+  border-left: 1px solid #dbe2ea;
+  padding: 16px;
+}
+
+.sidebar-section + .sidebar-section {
+  margin-top: 24px;
+}
+
+.sidebar h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+
+.rally-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  font-weight: 600;
+}
+
+.rally-filter input {
+  width: 18px;
+  height: 18px;
+}
+
+.rally-progress-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.rally-progress-card .top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.rally-progress-card .name {
+  font-weight: 700;
+}
+
+.rally-progress-card .count {
+  font-size: 13px;
+  color: #475569;
+}
+
+.rally-progress-card .progress-track {
+  height: 8px;
+}
+
+.legend {
+  font-size: 14px;
+}
+
+.legend > div {
+  margin: 8px 0;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  margin-right: 7px;
+  vertical-align: -2px;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px #64748b;
+}
+
+.legend-dot.visited {
+  background: #16a34a;
+}
+
+.legend-dot.unvisited {
+  background: #ef4444;
+}
+
+.checkpoint-marker {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
+}
+
+.checkpoint-marker.visited {
+  background: #16a34a;
+}
+
+.checkpoint-marker.unvisited {
+  background: #ef4444;
+}
+
+.popup-title {
+  font-weight: 800;
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+
+.popup-row {
+  margin: 3px 0;
+}
+
+.popup-status {
+  margin-top: 8px;
+  font-weight: 700;
+}
+
+.popup-status.visited {
+  color: #15803d;
+}
+
+.popup-status.unvisited {
+  color: #dc2626;
+}
+
+@media (max-width: 820px) {
+  .app-header {
+    height: 72px;
+    padding: 8px 12px;
+  }
+
+  .app-header h1 {
+    font-size: 20px;
+  }
+
+  .app-header p {
+    display: none;
+  }
+
+  .app-layout {
+    grid-template-columns: 1fr;
+    height: calc(100vh - 72px);
+  }
+
+  .sidebar {
+    position: absolute;
+    z-index: 1000;
+    right: 10px;
+    top: 82px;
+    width: 230px;
+    max-height: calc(100vh - 95px);
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.16);
+  }
+}
