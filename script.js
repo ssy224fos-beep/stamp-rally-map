@@ -22,6 +22,10 @@ const rallyLayers = {};
 const checkpointMarkers = {};
 const searchLayer = L.layerGroup().addTo(map);
 
+// 作成直後の空ラリーは、このページを開いている間だけ右ペインに残す。
+// リロードすると自然に空になり、「この範囲の駅を検索」実行時にもクリアする。
+const newlyCreatedEmptyRallyIds = new Set();
+
 const OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter";
 const MIN_AREA_SEARCH_ZOOM = 11;
 const MAX_AREA_SEARCH_RESULTS = 120;
@@ -649,7 +653,7 @@ function buildFilters() {
   const filteredRallies = getViewportFilteredRallies();
 
   if (filteredRallies.length === 0) {
-    container.innerHTML = `<div class="filtered-section-empty">現在の地図範囲に駅を含むラリーはありません。</div>`;
+    container.innerHTML = `<div class="filtered-section-empty">表示条件に一致するラリーはありません。</div>`;
     return;
   }
 
@@ -676,6 +680,13 @@ function buildFilters() {
 
     label.appendChild(input);
     label.appendChild(text);
+
+    if (isTransientNewEmptyRally(rally)) {
+      const note = document.createElement("span");
+      note.className = "new-rally-note";
+      note.textContent = "（新規・0駅）";
+      label.appendChild(note);
+    }
     container.appendChild(label);
   });
 }
@@ -709,6 +720,16 @@ function sortRalliesJapanese(rallies) {
   return [...rallies].sort((a, b) =>
     japaneseRallyCollator.compare(a.name, b.name)
   );
+}
+
+function shouldShowAllRallies() {
+  const checkbox = document.getElementById("showAllRalliesCheckbox");
+  return Boolean(checkbox?.checked);
+}
+
+function isTransientNewEmptyRally(rally) {
+  return rally.checkpoints.length === 0 &&
+    newlyCreatedEmptyRallyIds.has(rally.id);
 }
 
 function rallyHasCheckpointInCurrentMap(rally) {
@@ -753,9 +774,16 @@ function getFilteredRallies() {
 }
 
 function getViewportFilteredRallies() {
+  const filtered = getFilteredRallies();
+
+  if (shouldShowAllRallies()) {
+    return sortRalliesJapanese(filtered);
+  }
+
   return sortRalliesJapanese(
-    getFilteredRallies().filter(rally =>
-      rallyHasCheckpointInCurrentMap(rally)
+    filtered.filter(rally =>
+      rallyHasCheckpointInCurrentMap(rally) ||
+      isTransientNewEmptyRally(rally)
     )
   );
 }
@@ -866,6 +894,7 @@ function createRally() {
 
   stampRallies.push(rally);
   rallyLayers[rally.id] = L.layerGroup().addTo(map);
+  newlyCreatedEmptyRallyIds.add(rally.id);
 
   saveRallySettings();
   buildRallyManager();
@@ -937,6 +966,7 @@ function deleteRally(button) {
   }
 
   stampRallies.splice(rallyIndex, 1);
+  newlyCreatedEmptyRallyIds.delete(rallyId);
 
   saveRallySettings();
   saveCustomCheckpoints();
@@ -970,7 +1000,7 @@ function buildRegisteredStationList() {
   const filteredRallies = getViewportFilteredRallies();
 
   if (filteredRallies.length === 0) {
-    container.innerHTML = `<div class="filtered-section-empty">現在の地図範囲に駅を含むラリーはありません。</div>`;
+    container.innerHTML = `<div class="filtered-section-empty">表示条件に一致するラリーはありません。</div>`;
     return;
   }
 
@@ -1131,7 +1161,7 @@ function buildProgress() {
   });
 
   if (filteredRallies.length === 0) {
-    container.innerHTML = `<div class="filtered-section-empty">現在の地図範囲に駅を含むラリーはありません。</div>`;
+    container.innerHTML = `<div class="filtered-section-empty">表示条件に一致するラリーはありません。</div>`;
   }
 
   document.getElementById("overallCount").textContent = `${overallVisited} / ${overallTotal}`;
@@ -1214,6 +1244,9 @@ function dedupeStations(results) {
 }
 
 async function searchStationsInCurrentArea() {
+  newlyCreatedEmptyRallyIds.clear();
+  applyRallyFiltersEverywhere();
+
   const button = document.getElementById("areaStationSearchButton");
   const panel = document.getElementById("searchPanel");
   const status = document.getElementById("searchStatus");
@@ -1836,6 +1869,7 @@ function addStationToRally(station, button) {
   };
 
   rally.checkpoints.push(checkpoint);
+  newlyCreatedEmptyRallyIds.delete(rally.id);
   addCheckpointMarker(rally, checkpoint);
 
   saveCustomCheckpoints();
@@ -1943,12 +1977,19 @@ document.getElementById("clearRallyListFilter").addEventListener("click", () => 
   const input = document.getElementById("rallyListFilter");
   input.value = "";
   document.getElementById("rallyAchievementFilter").value = "all";
+  document.getElementById("showAllRalliesCheckbox").checked = false;
   applyRallyFiltersEverywhere();
   input.focus();
 });
 
 document.getElementById("rallyAchievementFilter").addEventListener("change", () => {
   applyRallyFiltersEverywhere();
+});
+
+document.getElementById("showAllRalliesCheckbox").addEventListener("change", () => {
+  buildFilters();
+  buildProgress();
+  buildRegisteredStationList();
 });
 
 document.getElementById("newRallyName").addEventListener("keydown", event => {

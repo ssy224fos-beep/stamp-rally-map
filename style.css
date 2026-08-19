@@ -897,3 +897,42 @@ button, input, select { font: inherit; }
   font-size: 12px;
   line-height: 1.5;
 }
+
+
+/* Phase 8.7: 地図範囲外ラリーの全件表示 */
+.show-all-rallies-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0 10px;
+  padding: 8px 9px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.show-all-rallies-option input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.new-rally-note {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #2563eb;
+  font-weight: 700;
+}
+
+.rally-filter {
+  flex-wrap: wrap;
+}
+.rally-filter .new-rally-note {
+  width: 100%;
+  padding-left: 28px;
+}
