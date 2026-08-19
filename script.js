@@ -446,6 +446,70 @@ out center tags;
   }
 }
 
+
+function buildRallySelectOptions(selectedRallyId = "station") {
+  return stampRallies.map(rally =>
+    `<option value="${rally.id}" ${rally.id === selectedRallyId ? "selected" : ""}>${escapeHtml(rally.name)}</option>`
+  ).join("");
+}
+
+function createSearchResultPopup(result, name) {
+  const prefecture = getPrefecture(result);
+  const osmType = result.osm_type || "unknown";
+  const osmId = String(result.osm_id || "");
+  const lat = Number(result.lat);
+  const lng = Number(result.lon);
+
+  return `
+    <div class="popup-content">
+      <div class="popup-title">${escapeHtml(name)}</div>
+      <div class="popup-row">${escapeHtml(prefecture || "駅検索結果")}</div>
+
+      <div class="search-popup-controls">
+        <label>
+          追加先ラリー
+          <select class="search-popup-rally-select">
+            ${buildRallySelectOptions("station")}
+          </select>
+        </label>
+
+        <button
+          type="button"
+          class="search-popup-add-button"
+          data-name="${escapeHtml(name)}"
+          data-prefecture="${escapeHtml(prefecture)}"
+          data-lat="${lat}"
+          data-lng="${lng}"
+          data-osm-type="${escapeHtml(osmType)}"
+          data-osm-id="${escapeHtml(osmId)}"
+        >
+          ＋ ラリーに追加
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function addStationFromSearchPopup(button) {
+  const popupContent = button.closest(".popup-content");
+  if (!popupContent) return;
+
+  const select = popupContent.querySelector(".search-popup-rally-select");
+  if (!select) return;
+
+  const station = {
+    rallyId: select.value,
+    name: button.dataset.name,
+    prefecture: button.dataset.prefecture || "",
+    lat: Number(button.dataset.lat),
+    lng: Number(button.dataset.lng),
+    osmType: button.dataset.osmType || "unknown",
+    osmId: button.dataset.osmId || `${Date.now()}`
+  };
+
+  addStationToRally(station, button);
+}
+
 function showAreaSearchMarkers(results) {
   searchLayer.clearLayers();
 
@@ -459,12 +523,7 @@ function showAreaSearchMarkers(results) {
       title: name
     }).addTo(searchLayer);
 
-    marker.bindPopup(`
-      <div class="popup-content">
-        <div class="popup-title">${escapeHtml(name)}</div>
-        <div class="popup-row">この範囲の駅検索結果</div>
-      </div>
-    `);
+    marker.bindPopup(createSearchResultPopup(result, name));
   });
 }
 
@@ -626,12 +685,7 @@ function showSearchResultOnMap(result, name) {
     title: name
   }).addTo(searchLayer);
 
-  marker.bindPopup(`
-    <div class="popup-content">
-      <div class="popup-title">${escapeHtml(name)}</div>
-      <div class="popup-row">駅検索結果</div>
-    </div>
-  `).openPopup();
+  marker.bindPopup(createSearchResultPopup(result, name)).openPopup();
 
   map.setView([lat, lng], 15);
 }
@@ -677,10 +731,16 @@ function addStationToRally(station, button) {
 }
 
 document.addEventListener("click", event => {
-  const button = event.target.closest(".visit-toggle-button");
-  if (!button) return;
+  const visitButton = event.target.closest(".visit-toggle-button");
+  if (visitButton) {
+    toggleVisited(visitButton.dataset.rallyId, visitButton.dataset.checkpointId);
+    return;
+  }
 
-  toggleVisited(button.dataset.rallyId, button.dataset.checkpointId);
+  const searchAddButton = event.target.closest(".search-popup-add-button");
+  if (searchAddButton) {
+    addStationFromSearchPopup(searchAddButton);
+  }
 });
 
 document.getElementById("stationSearchButton").addEventListener("click", searchStations);
