@@ -427,7 +427,7 @@ function createExistingStationAddPanel(rally, checkpoint) {
     )
     .map(item => item.id);
 
-  const availableRallies = stampRallies.filter(
+  const availableRallies = getRalliesAvailableForStationAddition().filter(
     item => !registeredRallyIds.includes(item.id)
   );
 
@@ -953,6 +953,15 @@ function getViewportFilteredRallies() {
     filtered.filter(rally =>
       rallyHasCheckpointInCurrentMap(rally) ||
       isTransientNewEmptyRally(rally)
+    )
+  );
+}
+
+function getRalliesAvailableForStationAddition() {
+  return sortRalliesJapanese(
+    stampRallies.filter(rally =>
+      rally.checkpoints.length === 0 ||
+      rallyHasCheckpointInCurrentMap(rally)
     )
   );
 }
@@ -1509,17 +1518,19 @@ out center tags;
 
 
 function buildRallySelectOptions(selectedRallyId = "") {
-  return sortRalliesJapanese(stampRallies).map(rally =>
+  return getRalliesAvailableForStationAddition().map(rally =>
     `<option value="${rally.id}" ${rally.id === selectedRallyId ? "selected" : ""}>${escapeHtml(rally.name)}</option>`
   ).join("");
 }
 
 function buildRallyCheckboxOptions(namePrefix, selectedIds = [], disabledIds = []) {
-  if (stampRallies.length === 0) {
+  const availableRallies = getRalliesAvailableForStationAddition();
+
+  if (availableRallies.length === 0) {
     return `<div class="no-rallies-note">先に右側の「ラリー管理」からラリーを作成してください。</div>`;
   }
 
-  return sortRalliesJapanese(stampRallies).map(rally => {
+  return availableRallies.map(rally => {
     const isDisabled = disabledIds.includes(rally.id);
     const isChecked = selectedIds.includes(rally.id) || isDisabled;
 
@@ -1547,7 +1558,10 @@ function createSearchResultPopup(result, name) {
   const lat = Number(result.lat);
   const lng = Number(result.lon);
   const registeredRallyIds = getStationMembershipRallyIds(result);
-  const availableCount = stampRallies.length - registeredRallyIds.length;
+  const candidateRallies = getRalliesAvailableForStationAddition();
+  const availableCount = candidateRallies.filter(
+    rally => !registeredRallyIds.includes(rally.id)
+  ).length;
   const stationKey = getSearchResultStationKey(result);
 
   return `
@@ -1840,7 +1854,10 @@ function renderStationResults(results) {
     const osmType = result.osm_type || "unknown";
     const osmId = String(result.osm_id || `${Date.now()}-${index}`);
     const registeredRallyIds = getStationMembershipRallyIds(result);
-    const availableCount = stampRallies.length - registeredRallyIds.length;
+    const candidateRallies = getRalliesAvailableForStationAddition();
+    const availableCount = candidateRallies.filter(
+      rally => !registeredRallyIds.includes(rally.id)
+    ).length;
 
     const card = document.createElement("div");
     card.className = "station-result-card";
