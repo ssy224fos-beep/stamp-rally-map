@@ -670,3 +670,21 @@ button, input, select { font: inherit; }
   font-weight: 700;
   cursor: pointer;
 }
+
+
+/* Phase 8.1: 青い検索マーカーの追加先ラリーは全件表示 */
+.leaflet-popup-content .rally-multi-select {
+  max-height: none;
+  overflow-y: visible;
+}
+
+.leaflet-popup-content {
+  min-width: 260px;
+  max-width: min(360px, 78vw);
+}
+
+.leaflet-popup-content .search-popup-controls {
+  max-height: 55vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}

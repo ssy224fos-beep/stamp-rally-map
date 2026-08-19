@@ -922,6 +922,10 @@ function showAreaSearchMarkers(results) {
     }).addTo(searchLayer);
 
     marker.bindPopup(createSearchResultPopup(result, name));
+
+    marker.on("popupopen", () => {
+      marker.setPopupContent(createSearchResultPopup(result, name));
+    });
   });
 }
 
@@ -1101,8 +1105,13 @@ function showSearchResultOnMap(result, name) {
     title: name
   }).addTo(searchLayer);
 
-  marker.bindPopup(createSearchResultPopup(result, name)).openPopup();
+  marker.bindPopup(createSearchResultPopup(result, name));
 
+  marker.on("popupopen", () => {
+    marker.setPopupContent(createSearchResultPopup(result, name));
+  });
+
+  marker.openPopup();
   map.setView([lat, lng], 15);
 }
 
