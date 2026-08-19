@@ -398,3 +398,60 @@ button, input, select { font: inherit; }
   opacity: .55;
   cursor: default;
 }
+
+
+.custom-edit-panel {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.custom-edit-panel label {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.custom-edit-panel input,
+.custom-edit-panel select {
+  width: 100%;
+  margin-top: 5px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 8px;
+  background: #fff;
+}
+
+.custom-edit-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.custom-edit-save,
+.custom-edit-delete {
+  border: 0;
+  border-radius: 7px;
+  padding: 9px 10px;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.custom-edit-save {
+  background: #2563eb;
+}
+
+.custom-edit-delete {
+  background: #dc2626;
+}
+
+.custom-edit-hint {
+  margin-top: 7px;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.4;
+}

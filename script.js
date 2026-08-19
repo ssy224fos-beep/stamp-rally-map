@@ -125,6 +125,53 @@ function createSearchIcon() {
 }
 
 function createPopup(rally, checkpoint) {
+  const customEditor = checkpoint.custom ? `
+      <div class="custom-edit-panel">
+        <label>
+          表示名
+          <input
+            type="text"
+            class="custom-edit-name"
+            value="${escapeHtml(checkpoint.name)}"
+            maxlength="80"
+          >
+        </label>
+
+        <label>
+          所属ラリー
+          <select class="custom-edit-rally">
+            ${stampRallies.map(item =>
+              `<option value="${item.id}" ${item.id === rally.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`
+            ).join("")}
+          </select>
+        </label>
+
+        <div class="custom-edit-actions">
+          <button
+            type="button"
+            class="custom-edit-save"
+            data-rally-id="${rally.id}"
+            data-checkpoint-id="${checkpoint.id}"
+          >
+            変更を保存
+          </button>
+
+          <button
+            type="button"
+            class="custom-edit-delete"
+            data-rally-id="${rally.id}"
+            data-checkpoint-id="${checkpoint.id}"
+          >
+            削除
+          </button>
+        </div>
+
+        <div class="custom-edit-hint">
+          駅検索から追加したポイントのみ編集・削除できます。
+        </div>
+      </div>
+  ` : "";
+
   return `
     <div class="popup-content">
       <div class="popup-title">${escapeHtml(checkpoint.name)}</div>
@@ -142,6 +189,8 @@ function createPopup(rally, checkpoint) {
       >
         ${checkpoint.visited ? "未訪問に戻す" : "✓ 訪問済みにする"}
       </button>
+
+      ${customEditor}
 
       <div class="save-note">変更内容はこのブラウザに自動保存されます</div>
     </div>
@@ -188,6 +237,121 @@ function toggleVisited(rallyId, checkpointId) {
 
   const marker = checkpointMarkers[checkpoint.id];
   if (marker) marker.openPopup();
+}
+
+
+function removeVisitedStateKey(checkpointId) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(VISITED_STORAGE_KEY) || "{}");
+    delete saved[checkpointId];
+    localStorage.setItem(VISITED_STORAGE_KEY, JSON.stringify(saved));
+  } catch (error) {
+    console.warn("訪問済みデータの整理に失敗しました。", error);
+  }
+}
+
+function removeCheckpointMarker(checkpointId, rallyId) {
+  const marker = checkpointMarkers[checkpointId];
+  if (marker && rallyLayers[rallyId]) {
+    rallyLayers[rallyId].removeLayer(marker);
+  }
+  delete checkpointMarkers[checkpointId];
+}
+
+function saveCustomCheckpointEdit(button) {
+  const currentRallyId = button.dataset.rallyId;
+  const checkpointId = button.dataset.checkpointId;
+  const result = findCheckpoint(currentRallyId, checkpointId);
+
+  if (!result || !result.checkpoint.custom) return;
+
+  const popup = button.closest(".popup-content");
+  if (!popup) return;
+
+  const nameInput = popup.querySelector(".custom-edit-name");
+  const rallySelect = popup.querySelector(".custom-edit-rally");
+  if (!nameInput || !rallySelect) return;
+
+  const newName = nameInput.value.trim();
+  const newRallyId = rallySelect.value;
+  const { rally: oldRally, checkpoint } = result;
+
+  if (!newName) {
+    alert("表示名を入力してください。");
+    return;
+  }
+
+  checkpoint.name = newName;
+
+  if (newRallyId === currentRallyId) {
+    saveCustomCheckpoints();
+    saveVisitedStates();
+    updateMarker(oldRally, checkpoint);
+    buildProgress();
+
+    const marker = checkpointMarkers[checkpoint.id];
+    if (marker) marker.openPopup();
+    return;
+  }
+
+  const newRally = stampRallies.find(r => r.id === newRallyId);
+  if (!newRally) return;
+
+  const oldId = checkpoint.id;
+  const newId = makeCustomCheckpointId(
+    newRallyId,
+    checkpoint.osmType || "unknown",
+    checkpoint.osmId || oldId
+  );
+
+  if (newRally.checkpoints.some(cp => cp.id === newId)) {
+    alert("移動先のラリーには、この駅がすでに追加されています。");
+    return;
+  }
+
+  const oldIndex = oldRally.checkpoints.findIndex(cp => cp.id === oldId);
+  if (oldIndex >= 0) {
+    oldRally.checkpoints.splice(oldIndex, 1);
+  }
+
+  removeCheckpointMarker(oldId, currentRallyId);
+  removeVisitedStateKey(oldId);
+
+  checkpoint.id = newId;
+  newRally.checkpoints.push(checkpoint);
+  addCheckpointMarker(newRally, checkpoint);
+
+  saveCustomCheckpoints();
+  saveVisitedStates();
+  buildProgress();
+
+  const marker = checkpointMarkers[checkpoint.id];
+  if (marker) marker.openPopup();
+}
+
+function deleteCustomCheckpoint(button) {
+  const rallyId = button.dataset.rallyId;
+  const checkpointId = button.dataset.checkpointId;
+  const result = findCheckpoint(rallyId, checkpointId);
+
+  if (!result || !result.checkpoint.custom) return;
+
+  const { rally, checkpoint } = result;
+  const ok = confirm(`「${checkpoint.name}」をこのラリーから削除しますか？`);
+  if (!ok) return;
+
+  const index = rally.checkpoints.findIndex(cp => cp.id === checkpointId);
+  if (index >= 0) {
+    rally.checkpoints.splice(index, 1);
+  }
+
+  removeCheckpointMarker(checkpointId, rallyId);
+  removeVisitedStateKey(checkpointId);
+
+  saveCustomCheckpoints();
+  saveVisitedStates();
+  buildProgress();
+  map.closePopup();
 }
 
 function addCheckpointMarker(rally, checkpoint) {
@@ -734,6 +898,18 @@ document.addEventListener("click", event => {
   const visitButton = event.target.closest(".visit-toggle-button");
   if (visitButton) {
     toggleVisited(visitButton.dataset.rallyId, visitButton.dataset.checkpointId);
+    return;
+  }
+
+  const editSaveButton = event.target.closest(".custom-edit-save");
+  if (editSaveButton) {
+    saveCustomCheckpointEdit(editSaveButton);
+    return;
+  }
+
+  const deleteButton = event.target.closest(".custom-edit-delete");
+  if (deleteButton) {
+    deleteCustomCheckpoint(deleteButton);
     return;
   }
 
