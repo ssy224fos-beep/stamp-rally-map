@@ -954,3 +954,11 @@ button, input, select { font: inherit; }
 .registered-ignore-button:active {
   transform: translateY(1px);
 }
+
+
+/* Phase 8.9: 登録済み→登録不要の直後表示 */
+.search-result-marker.ignored {
+  background: #94a3b8;
+  border-color: #ffffff;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, .45);
+}

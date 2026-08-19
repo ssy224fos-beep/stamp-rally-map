@@ -214,7 +214,15 @@ function loadCustomCheckpoints() {
     const legacyRaw = localStorage.getItem(LEGACY_CUSTOM_STORAGE_KEY);
     const saved = JSON.parse(currentRaw || legacyRaw || "[]");
 
+    const ignoredKeys = loadIgnoredStationKeys();
+
     saved.forEach(item => {
+      const itemStationKey =
+        item.stationKey || makeStationKey(item.osmType, item.osmId);
+
+      // 登録不要になっている駅は、古い保存データが残っていても復元しない。
+      if (ignoredKeys.has(itemStationKey)) return;
+
       const rally = stampRallies.find(r => r.id === item.rallyId);
       if (!rally) return;
 
@@ -581,6 +589,59 @@ function toggleVisited(rallyId, checkpointId) {
 }
 
 
+function purgeStationFromCustomStorage(stationKey) {
+  try {
+    const currentRaw = localStorage.getItem(CUSTOM_STORAGE_KEY);
+    const saved = JSON.parse(currentRaw || "[]");
+
+    if (!Array.isArray(saved)) return;
+
+    const filtered = saved.filter(item => {
+      const itemKey =
+        item.stationKey || makeStationKey(item.osmType, item.osmId);
+      return itemKey !== stationKey;
+    });
+
+    localStorage.setItem(
+      CUSTOM_STORAGE_KEY,
+      JSON.stringify(filtered)
+    );
+  } catch (error) {
+    console.warn("登録駅データの削除に失敗しました。", error);
+  }
+}
+
+function createIgnoredPreviewMarker(checkpoint) {
+  const marker = L.marker(
+    [checkpoint.lat, checkpoint.lng],
+    {
+      icon: L.divIcon({
+        className: "",
+        html: `<div class="search-result-marker ignored"></div>`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+        popupAnchor: [0, -12]
+      }),
+      title: checkpoint.name
+    }
+  ).addTo(searchLayer);
+
+  marker.bindPopup(`
+    <div class="popup-content">
+      <div class="popup-title">${escapeHtml(checkpoint.name)}</div>
+      <div class="popup-row">登録不要に変更しました。</div>
+      <div class="popup-row">
+        次回の再読み込みや「この範囲の駅を検索」では表示されません。
+      </div>
+      <div class="popup-row">
+        右ペインの「登録不要駅」から元に戻せます。
+      </div>
+    </div>
+  `).openPopup();
+
+  return marker;
+}
+
 function changeRegisteredStationToIgnored(button) {
   const rallyId = button.dataset.rallyId;
   const checkpointId = button.dataset.checkpointId;
@@ -590,13 +651,26 @@ function changeRegisteredStationToIgnored(button) {
   const { checkpoint } = result;
   const stationKey = getCheckpointVisitKey(checkpoint);
 
+  const checkpointSnapshot = {
+    name: checkpoint.name,
+    prefecture: checkpoint.prefecture || "",
+    lat: checkpoint.lat,
+    lng: checkpoint.lng,
+    osmType: checkpoint.osmType || "unknown",
+    osmId: String(checkpoint.osmId || ""),
+    stationKey
+  };
+
   const ok = confirm(
     `「${checkpoint.name}」を登録不要に変更しますか？\n` +
     `この駅は、登録されているすべてのラリーから削除されます。`
   );
   if (!ok) return;
 
-  // 同じ駅を全ラリーから削除
+  // まず検索候補レイヤーを整理し、あとでグレーの一時表示を1個だけ出す。
+  searchLayer.clearLayers();
+
+  // 同じ駅をすべてのラリーから削除。
   stampRallies.forEach(rally => {
     for (let i = rally.checkpoints.length - 1; i >= 0; i--) {
       const cp = rally.checkpoints[i];
@@ -607,7 +681,10 @@ function changeRegisteredStationToIgnored(button) {
     }
   });
 
-  // 訪問済み共有データからも削除
+  // 保存済み登録駅データからも直接削除。
+  purgeStationFromCustomStorage(stationKey);
+
+  // 訪問済み共有データから削除。
   try {
     const savedVisited = JSON.parse(
       localStorage.getItem(VISITED_STORAGE_KEY) || "{}"
@@ -621,34 +698,38 @@ function changeRegisteredStationToIgnored(button) {
     console.warn("訪問済みデータの整理に失敗しました。", error);
   }
 
-  // 登録不要として保存
+  // 登録不要として保存。
   const ignoredItems = loadIgnoredStations()
     .filter(item => item.key !== stationKey);
 
   ignoredItems.push({
     key: stationKey,
-    name: checkpoint.name,
-    prefecture: checkpoint.prefecture || "",
+    name: checkpointSnapshot.name,
+    prefecture: checkpointSnapshot.prefecture,
     result: sanitizeSearchResultForStorage({
-      lat: checkpoint.lat,
-      lon: checkpoint.lng,
-      name: checkpoint.name,
-      display_name: checkpoint.name,
+      lat: checkpointSnapshot.lat,
+      lon: checkpointSnapshot.lng,
+      name: checkpointSnapshot.name,
+      display_name: checkpointSnapshot.name,
       category: "railway",
       type: "station",
-      osm_type: checkpoint.osmType || "unknown",
-      osm_id: String(checkpoint.osmId || ""),
-      namedetails: { name: checkpoint.name },
-      address: checkpoint.prefecture
-        ? { province: checkpoint.prefecture }
+      osm_type: checkpointSnapshot.osmType,
+      osm_id: checkpointSnapshot.osmId,
+      namedetails: { name: checkpointSnapshot.name },
+      address: checkpointSnapshot.prefecture
+        ? { province: checkpointSnapshot.prefecture }
         : {}
     })
   });
 
   saveIgnoredStations(ignoredItems);
 
+  // 念のため現在状態から保存データを再構築。
   saveCustomCheckpoints();
   saveVisitedStates();
+
+  // 青検索結果の永続保存からも取り除く。
+  removeSearchResultFromPersistentStorage(stationKey);
 
   buildRallyManager();
   buildFilters();
@@ -656,7 +737,8 @@ function changeRegisteredStationToIgnored(button) {
   buildRegisteredStationList();
   buildIgnoredStationList();
 
-  map.closePopup();
+  // 変更直後だけグレーで確認できるようにする。
+  createIgnoredPreviewMarker(checkpointSnapshot);
 }
 
 function addExistingStationToSelectedRallies(button) {
