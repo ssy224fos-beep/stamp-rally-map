@@ -688,3 +688,45 @@ button, input, select { font: inherit; }
   overflow-y: auto;
   padding-right: 2px;
 }
+
+
+/* Phase 8.2: 登録済み駅を別ラリーへ追加 */
+.existing-rally-add-panel {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.existing-rally-add-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: #475569;
+  margin-bottom: 6px;
+}
+
+.existing-rally-add-button {
+  width: 100%;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 7px;
+  padding: 9px 12px;
+  background: #0f766e;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.existing-rally-add-button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.rally-multi-option.already-registered {
+  opacity: .65;
+}
+
+.rally-multi-option .registered-label {
+  margin-left: auto;
+  font-size: 11px;
+  color: #64748b;
+}
