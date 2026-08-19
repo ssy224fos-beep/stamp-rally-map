@@ -850,3 +850,50 @@ button, input, select { font: inherit; }
   width: auto;
   flex: 1;
 }
+
+
+/* Phase 8.6: 登録不要駅の復元 */
+.ignored-station-list {
+  display: grid;
+  gap: 8px;
+}
+
+.ignored-station-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  padding: 9px;
+  background: #f8fafc;
+}
+
+.ignored-station-name {
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.ignored-station-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.ignored-station-restore {
+  width: 100%;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 7px;
+  padding: 8px 9px;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ignored-station-empty {
+  padding: 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}

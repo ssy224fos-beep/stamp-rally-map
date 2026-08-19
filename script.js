@@ -70,26 +70,69 @@ function makeStationKey(osmType, osmId) {
   return `${osmType || "unknown"}:${osmId || ""}`;
 }
 
-function loadIgnoredStationKeys() {
+function loadIgnoredStations() {
   try {
-    const saved = JSON.parse(localStorage.getItem(IGNORED_STATIONS_STORAGE_KEY) || "[]");
-    return new Set(Array.isArray(saved) ? saved : []);
+    const saved = JSON.parse(
+      localStorage.getItem(IGNORED_STATIONS_STORAGE_KEY) || "[]"
+    );
+
+    if (!Array.isArray(saved)) return [];
+
+    // Phase 8.5 以前の ["node:123", ...] 形式も引き継ぐ
+    return saved.map(item => {
+      if (typeof item === "string") {
+        return {
+          key: item,
+          name: item,
+          prefecture: "",
+          result: null
+        };
+      }
+
+      return {
+        key: item.key || "",
+        name: item.name || item.key || "駅",
+        prefecture: item.prefecture || "",
+        result: item.result || null
+      };
+    }).filter(item => item.key);
   } catch (error) {
     console.warn("登録不要駅データを読み込めませんでした。", error);
-    return new Set();
+    return [];
   }
 }
 
-function saveIgnoredStationKeys(set) {
+function saveIgnoredStations(items) {
   try {
     localStorage.setItem(
       IGNORED_STATIONS_STORAGE_KEY,
-      JSON.stringify([...set])
+      JSON.stringify(items)
     );
   } catch (error) {
     console.warn("登録不要駅データを保存できませんでした。", error);
   }
 }
+
+function loadIgnoredStationKeys() {
+  return new Set(loadIgnoredStations().map(item => item.key));
+}
+
+function saveIgnoredStationKeys(set) {
+  const existing = loadIgnoredStations();
+  const byKey = new Map(existing.map(item => [item.key, item]));
+
+  const items = [...set].map(key =>
+    byKey.get(key) || {
+      key,
+      name: key,
+      prefecture: "",
+      result: null
+    }
+  );
+
+  saveIgnoredStations(items);
+}
+
 
 function getSearchResultStationKey(result) {
   return makeStationKey(
@@ -111,11 +154,24 @@ function removeSearchResultFromPersistentStorage(stationKey) {
 
 function markStationIgnored(result, marker = null) {
   const key = getSearchResultStationKey(result);
-  const ignored = loadIgnoredStationKeys();
-  ignored.add(key);
-  saveIgnoredStationKeys(ignored);
 
-  // 直後だけグレー表示
+  const ignoredItems = loadIgnoredStations()
+    .filter(item => item.key !== key);
+
+  ignoredItems.push({
+    key,
+    name:
+      result.namedetails?.name ||
+      result.name ||
+      result.display_name?.split(",")[0] ||
+      "駅",
+    prefecture: getPrefecture(result),
+    result: sanitizeSearchResultForStorage(result)
+  });
+
+  saveIgnoredStations(ignoredItems);
+
+  // 選択直後だけグレー表示
   if (marker) {
     marker.setIcon(L.divIcon({
       className: "",
@@ -134,12 +190,13 @@ function markStationIgnored(result, marker = null) {
           "駅"
         )}</div>
         <div class="popup-row">登録不要に設定しました。</div>
-        <div class="popup-row">次回の再読み込み・範囲検索では表示されません。</div>
+        <div class="popup-row">右ペインの「登録不要駅」から元に戻せます。</div>
       </div>
     `);
   }
 
   removeSearchResultFromPersistentStorage(key);
+  buildIgnoredStationList();
 }
 
 
@@ -589,10 +646,10 @@ function buildFilters() {
   const container = document.getElementById("rallyFilters");
   container.innerHTML = "";
 
-  const filteredRallies = getFilteredRallies();
+  const filteredRallies = getViewportFilteredRallies();
 
   if (filteredRallies.length === 0) {
-    container.innerHTML = `<div class="filtered-section-empty">条件に一致するラリーはありません。</div>`;
+    container.innerHTML = `<div class="filtered-section-empty">現在の地図範囲に駅を含むラリーはありません。</div>`;
     return;
   }
 
@@ -642,6 +699,28 @@ function getRallyListFilterValue() {
 }
 
 
+const japaneseRallyCollator = new Intl.Collator("ja", {
+  usage: "sort",
+  sensitivity: "base",
+  numeric: true
+});
+
+function sortRalliesJapanese(rallies) {
+  return [...rallies].sort((a, b) =>
+    japaneseRallyCollator.compare(a.name, b.name)
+  );
+}
+
+function rallyHasCheckpointInCurrentMap(rally) {
+  if (!map || !map.getBounds) return true;
+
+  const bounds = map.getBounds();
+
+  return rally.checkpoints.some(checkpoint =>
+    bounds.contains([checkpoint.lat, checkpoint.lng])
+  );
+}
+
 function getRallyAchievementFilterValue() {
   const select = document.getElementById("rallyAchievementFilter");
   return select ? select.value : "all";
@@ -657,7 +736,7 @@ function getFilteredRallies() {
   const normalizedFilter = normalizeRallyFilterText(rawFilter);
   const achievement = getRallyAchievementFilterValue();
 
-  return stampRallies.filter(rally => {
+  const result = stampRallies.filter(rally => {
     const nameMatches = !normalizedFilter ||
       normalizeRallyFilterText(rally.name).includes(normalizedFilter);
 
@@ -669,7 +748,18 @@ function getFilteredRallies() {
 
     return nameMatches && statusMatches;
   });
+
+  return sortRalliesJapanese(result);
 }
+
+function getViewportFilteredRallies() {
+  return sortRalliesJapanese(
+    getFilteredRallies().filter(rally =>
+      rallyHasCheckpointInCurrentMap(rally)
+    )
+  );
+}
+
 
 function applyRallyFiltersEverywhere() {
   buildRallyManager();
@@ -877,10 +967,10 @@ function buildRegisteredStationList() {
     return;
   }
 
-  const filteredRallies = getFilteredRallies();
+  const filteredRallies = getViewportFilteredRallies();
 
   if (filteredRallies.length === 0) {
-    container.innerHTML = `<div class="filtered-section-empty">条件に一致するラリーはありません。</div>`;
+    container.innerHTML = `<div class="filtered-section-empty">現在の地図範囲に駅を含むラリーはありません。</div>`;
     return;
   }
 
@@ -951,11 +1041,69 @@ function showRegisteredStation(rallyId, checkpointId) {
   if (marker) marker.openPopup();
 }
 
+function buildIgnoredStationList() {
+  const container = document.getElementById("ignoredStationList");
+  if (!container) return;
+
+  const items = loadIgnoredStations().sort((a, b) =>
+    japaneseRallyCollator.compare(a.name || "", b.name || "")
+  );
+
+  if (items.length === 0) {
+    container.innerHTML = `
+      <div class="ignored-station-empty">
+        登録不要に設定した駅はありません。
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = items.map(item => `
+    <div class="ignored-station-card">
+      <div class="ignored-station-name">${escapeHtml(item.name || item.key)}</div>
+      <div class="ignored-station-meta">${escapeHtml(item.prefecture || "")}</div>
+      <button
+        type="button"
+        class="ignored-station-restore"
+        data-station-key="${escapeHtml(item.key)}"
+      >
+        登録候補に戻す
+      </button>
+    </div>
+  `).join("");
+}
+
+function restoreIgnoredStation(stationKey) {
+  const items = loadIgnoredStations();
+  const target = items.find(item => item.key === stationKey);
+
+  saveIgnoredStations(
+    items.filter(item => item.key !== stationKey)
+  );
+
+  if (target?.result) {
+    const existingResults = loadPersistentSearchResults()
+      .filter(result => getSearchResultStationKey(result) !== stationKey);
+
+    existingResults.push(target.result);
+    savePersistentSearchResults(existingResults);
+    showAreaSearchMarkers(existingResults, false);
+
+    const lat = Number(target.result.lat);
+    const lng = Number(target.result.lon);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      map.setView([lat, lng], Math.max(map.getZoom(), 14));
+    }
+  }
+
+  buildIgnoredStationList();
+}
+
 function buildProgress() {
   const container = document.getElementById("rallyProgress");
   container.innerHTML = "";
 
-  const filteredRallies = getFilteredRallies();
+  const filteredRallies = getViewportFilteredRallies();
 
   let overallVisited = 0;
   let overallTotal = 0;
@@ -983,7 +1131,7 @@ function buildProgress() {
   });
 
   if (filteredRallies.length === 0) {
-    container.innerHTML = `<div class="filtered-section-empty">条件に一致するラリーはありません。</div>`;
+    container.innerHTML = `<div class="filtered-section-empty">現在の地図範囲に駅を含むラリーはありません。</div>`;
   }
 
   document.getElementById("overallCount").textContent = `${overallVisited} / ${overallTotal}`;
@@ -1751,6 +1899,12 @@ document.addEventListener("click", event => {
     return;
   }
 
+  const ignoredRestoreButton = event.target.closest(".ignored-station-restore");
+  if (ignoredRestoreButton) {
+    restoreIgnoredStation(ignoredRestoreButton.dataset.stationKey);
+    return;
+  }
+
   const registeredShowButton = event.target.closest(".registered-station-show");
   if (registeredShowButton) {
     showRegisteredStation(
@@ -1805,6 +1959,12 @@ document.getElementById("newRallyName").addEventListener("keydown", event => {
 });
 
 
+map.on("moveend zoomend", () => {
+  buildFilters();
+  buildProgress();
+  buildRegisteredStationList();
+});
+
 document.getElementById("stationSearchButton").addEventListener("click", searchStations);
 document.getElementById("areaStationSearchButton").addEventListener("click", searchStationsInCurrentArea);
 
@@ -1828,4 +1988,5 @@ buildRallyManager();
 buildFilters();
 buildProgress();
 buildRegisteredStationList();
+buildIgnoredStationList();
 restorePersistentSearchMarkers();
