@@ -522,6 +522,15 @@ function createPopup(rally, checkpoint) {
         ${checkpoint.visited ? "未訪問に戻す" : "✓ 訪問済みにする"}
       </button>
 
+      <button
+        type="button"
+        class="registered-ignore-button"
+        data-rally-id="${rally.id}"
+        data-checkpoint-id="${checkpoint.id}"
+      >
+        登録不要に変更
+      </button>
+
       ${createExistingStationAddPanel(rally, checkpoint)}
 
       ${customEditor}
@@ -571,6 +580,84 @@ function toggleVisited(rallyId, checkpointId) {
   if (marker) marker.openPopup();
 }
 
+
+function changeRegisteredStationToIgnored(button) {
+  const rallyId = button.dataset.rallyId;
+  const checkpointId = button.dataset.checkpointId;
+  const result = findCheckpoint(rallyId, checkpointId);
+  if (!result) return;
+
+  const { checkpoint } = result;
+  const stationKey = getCheckpointVisitKey(checkpoint);
+
+  const ok = confirm(
+    `「${checkpoint.name}」を登録不要に変更しますか？\n` +
+    `この駅は、登録されているすべてのラリーから削除されます。`
+  );
+  if (!ok) return;
+
+  // 同じ駅を全ラリーから削除
+  stampRallies.forEach(rally => {
+    for (let i = rally.checkpoints.length - 1; i >= 0; i--) {
+      const cp = rally.checkpoints[i];
+      if (getCheckpointVisitKey(cp) !== stationKey) continue;
+
+      removeCheckpointMarker(cp.id, rally.id);
+      rally.checkpoints.splice(i, 1);
+    }
+  });
+
+  // 訪問済み共有データからも削除
+  try {
+    const savedVisited = JSON.parse(
+      localStorage.getItem(VISITED_STORAGE_KEY) || "{}"
+    );
+    delete savedVisited[stationKey];
+    localStorage.setItem(
+      VISITED_STORAGE_KEY,
+      JSON.stringify(savedVisited)
+    );
+  } catch (error) {
+    console.warn("訪問済みデータの整理に失敗しました。", error);
+  }
+
+  // 登録不要として保存
+  const ignoredItems = loadIgnoredStations()
+    .filter(item => item.key !== stationKey);
+
+  ignoredItems.push({
+    key: stationKey,
+    name: checkpoint.name,
+    prefecture: checkpoint.prefecture || "",
+    result: sanitizeSearchResultForStorage({
+      lat: checkpoint.lat,
+      lon: checkpoint.lng,
+      name: checkpoint.name,
+      display_name: checkpoint.name,
+      category: "railway",
+      type: "station",
+      osm_type: checkpoint.osmType || "unknown",
+      osm_id: String(checkpoint.osmId || ""),
+      namedetails: { name: checkpoint.name },
+      address: checkpoint.prefecture
+        ? { province: checkpoint.prefecture }
+        : {}
+    })
+  });
+
+  saveIgnoredStations(ignoredItems);
+
+  saveCustomCheckpoints();
+  saveVisitedStates();
+
+  buildRallyManager();
+  buildFilters();
+  buildProgress();
+  buildRegisteredStationList();
+  buildIgnoredStationList();
+
+  map.closePopup();
+}
 
 function addExistingStationToSelectedRallies(button) {
   const sourceRallyId = button.dataset.rallyId;
@@ -1340,7 +1427,7 @@ out center tags;
 
 
 function buildRallySelectOptions(selectedRallyId = "") {
-  return stampRallies.map(rally =>
+  return sortRalliesJapanese(stampRallies).map(rally =>
     `<option value="${rally.id}" ${rally.id === selectedRallyId ? "selected" : ""}>${escapeHtml(rally.name)}</option>`
   ).join("");
 }
@@ -1350,7 +1437,7 @@ function buildRallyCheckboxOptions(namePrefix, selectedIds = [], disabledIds = [
     return `<div class="no-rallies-note">先に右側の「ラリー管理」からラリーを作成してください。</div>`;
   }
 
-  return stampRallies.map(rally => {
+  return sortRalliesJapanese(stampRallies).map(rally => {
     const isDisabled = disabledIds.includes(rally.id);
     const isChecked = selectedIds.includes(rally.id) || isDisabled;
 
@@ -1912,6 +1999,12 @@ document.addEventListener("click", event => {
   const checkpointDeleteButton = event.target.closest(".custom-edit-delete");
   if (checkpointDeleteButton) {
     deleteCustomCheckpoint(checkpointDeleteButton);
+    return;
+  }
+
+  const registeredIgnoreButton = event.target.closest(".registered-ignore-button");
+  if (registeredIgnoreButton) {
+    changeRegisteredStationToIgnored(registeredIgnoreButton);
     return;
   }
 

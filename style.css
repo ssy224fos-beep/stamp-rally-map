@@ -936,3 +936,21 @@ button, input, select { font: inherit; }
   width: 100%;
   padding-left: 28px;
 }
+
+
+/* Phase 8.8: 登録済み駅を登録不要へ変更 */
+.registered-ignore-button {
+  width: 100%;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: #64748b;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.registered-ignore-button:active {
+  transform: translateY(1px);
+}
