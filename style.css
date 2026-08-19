@@ -810,3 +810,43 @@ button, input, select { font: inherit; }
   font-size: 12px;
   line-height: 1.5;
 }
+
+
+/* Phase 8.5: 登録不要 */
+.legend-dot.ignored {
+  background: #94a3b8;
+}
+
+.search-result-marker.ignored {
+  background: #94a3b8;
+}
+
+.search-popup-ignore-button,
+.station-ignore-button {
+  width: 100%;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 7px;
+  padding: 9px 12px;
+  background: #64748b;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.search-popup-ignore-button:disabled,
+.station-ignore-button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.station-result-status-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.station-result-status-row .station-ignore-button {
+  width: auto;
+  flex: 1;
+}

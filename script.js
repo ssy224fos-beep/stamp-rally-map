@@ -2,6 +2,7 @@ const VISITED_STORAGE_KEY = "stampRallyMapVisitedShared_v2";
 const CUSTOM_STORAGE_KEY = "stampRallyMapCustomCheckpoints_v2";
 const RALLY_STORAGE_KEY = "stampRallyMapRallies_v2";
 const SEARCH_RESULTS_STORAGE_KEY = "stampRallyMapSearchResults_v1";
+const IGNORED_STATIONS_STORAGE_KEY = "stampRallyMapIgnoredStations_v1";
 
 const LEGACY_CUSTOM_STORAGE_KEY = "stampRallyMapCustomCheckpoints_v1";
 const LEGACY_RALLY_STORAGE_KEY = "stampRallyMapRallies_v1";
@@ -68,6 +69,79 @@ function makeNewRallyId() {
 function makeStationKey(osmType, osmId) {
   return `${osmType || "unknown"}:${osmId || ""}`;
 }
+
+function loadIgnoredStationKeys() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(IGNORED_STATIONS_STORAGE_KEY) || "[]");
+    return new Set(Array.isArray(saved) ? saved : []);
+  } catch (error) {
+    console.warn("登録不要駅データを読み込めませんでした。", error);
+    return new Set();
+  }
+}
+
+function saveIgnoredStationKeys(set) {
+  try {
+    localStorage.setItem(
+      IGNORED_STATIONS_STORAGE_KEY,
+      JSON.stringify([...set])
+    );
+  } catch (error) {
+    console.warn("登録不要駅データを保存できませんでした。", error);
+  }
+}
+
+function getSearchResultStationKey(result) {
+  return makeStationKey(
+    result.osm_type || result.osmType || "unknown",
+    String(result.osm_id || result.osmId || "")
+  );
+}
+
+function isIgnoredStation(result) {
+  const ignored = loadIgnoredStationKeys();
+  return ignored.has(getSearchResultStationKey(result));
+}
+
+function removeSearchResultFromPersistentStorage(stationKey) {
+  const saved = loadPersistentSearchResults();
+  const filtered = saved.filter(result => getSearchResultStationKey(result) !== stationKey);
+  savePersistentSearchResults(filtered);
+}
+
+function markStationIgnored(result, marker = null) {
+  const key = getSearchResultStationKey(result);
+  const ignored = loadIgnoredStationKeys();
+  ignored.add(key);
+  saveIgnoredStationKeys(ignored);
+
+  // 直後だけグレー表示
+  if (marker) {
+    marker.setIcon(L.divIcon({
+      className: "",
+      html: `<div class="search-result-marker ignored"></div>`,
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+      popupAnchor: [0, -12]
+    }));
+
+    marker.setPopupContent(`
+      <div class="popup-content">
+        <div class="popup-title">${escapeHtml(
+          result.namedetails?.name ||
+          result.name ||
+          result.display_name?.split(",")[0] ||
+          "駅"
+        )}</div>
+        <div class="popup-row">登録不要に設定しました。</div>
+        <div class="popup-row">次回の再読み込み・範囲検索では表示されません。</div>
+      </div>
+    `);
+  }
+
+  removeSearchResultFromPersistentStorage(key);
+}
+
 
 function makeCustomCheckpointId(rallyId, osmType, osmId) {
   return `custom-${rallyId}-${osmType}-${osmId}`;
@@ -1050,6 +1124,7 @@ out center tags;
           const name = result.namedetails?.name || result.name || "";
           return name !== "名称不明の駅";
         })
+        .filter(result => !isIgnoredStation(result))
     );
 
     if (stations.length === 0) {
@@ -1123,6 +1198,7 @@ function createSearchResultPopup(result, name) {
   const lng = Number(result.lon);
   const registeredRallyIds = getStationMembershipRallyIds(result);
   const availableCount = stampRallies.length - registeredRallyIds.length;
+  const stationKey = getSearchResultStationKey(result);
 
   return `
     <div class="popup-content">
@@ -1152,9 +1228,48 @@ function createSearchResultPopup(result, name) {
         >
           ${availableCount === 0 ? "すべてのラリーに登録済み" : "＋ 選択したラリーに追加"}
         </button>
+
+        <button
+          type="button"
+          class="search-popup-ignore-button"
+          data-name="${escapeHtml(name)}"
+          data-lat="${lat}"
+          data-lng="${lng}"
+          data-osm-type="${escapeHtml(osmType)}"
+          data-osm-id="${escapeHtml(osmId)}"
+        >
+          登録不要にする
+        </button>
       </div>
     </div>
   `;
+}
+
+function ignoreStationFromSearchPopup(button) {
+  const popupContent = button.closest(".popup-content");
+  if (!popupContent) return;
+
+  const result = {
+    lat: button.dataset.lat,
+    lon: button.dataset.lng,
+    name: button.dataset.name || "",
+    display_name: button.dataset.name || "",
+    category: "railway",
+    type: "station",
+    osm_type: button.dataset.osmType || "unknown",
+    osm_id: button.dataset.osmId || "",
+    namedetails: { name: button.dataset.name || "" },
+    address: {}
+  };
+
+  const marker = Object.values(searchLayer._layers || {}).find(layer => {
+    if (!(layer instanceof L.Marker)) return false;
+    const ll = layer.getLatLng();
+    return Math.abs(ll.lat - Number(result.lat)) < 1e-7 &&
+           Math.abs(ll.lng - Number(result.lon)) < 1e-7;
+  });
+
+  markStationIgnored(result, marker || null);
 }
 
 function addStationFromSearchPopup(button) {
@@ -1230,7 +1345,9 @@ function loadPersistentSearchResults() {
 }
 
 function restorePersistentSearchMarkers() {
-  const saved = loadPersistentSearchResults();
+  const saved = loadPersistentSearchResults()
+    .filter(result => !isIgnoredStation(result));
+
   if (saved.length > 0) {
     showAreaSearchMarkers(saved, false);
   }
@@ -1244,6 +1361,10 @@ function showAreaSearchMarkers(results, persist = true) {
   }
 
   results.forEach(result => {
+    if (isIgnoredStation(result)) {
+      return;
+    }
+
     // すでにいずれかのラリーへ登録済みの駅は、
     // 既存の赤/緑マーカーをそのまま残し、青マーカーを重ねない。
     if (findExistingStationMatch(result)) {
@@ -1337,7 +1458,9 @@ async function searchStations() {
     }
 
     const rawResults = await response.json();
-    const stations = rawResults.filter(isLikelyStation);
+    const stations = rawResults
+      .filter(isLikelyStation)
+      .filter(result => !isIgnoredStation(result));
 
     if (stations.length === 0) {
       status.textContent = "駅候補が見つかりませんでした。駅名を少し変えて再検索してください。";
@@ -1399,13 +1522,41 @@ function renderStationResults(results) {
       <div class="station-result-subactions">
         <button type="button" class="show-station-button">地図で表示</button>
       </div>
+
+      <div class="station-result-status-row">
+        <button type="button" class="station-ignore-button">登録不要にする</button>
+      </div>
     `;
 
     const showButton = card.querySelector(".show-station-button");
     const addButton = card.querySelector(".add-station-button");
+    const ignoreButton = card.querySelector(".station-ignore-button");
 
     showButton.addEventListener("click", () => {
       showSearchResultOnMap(result, name);
+    });
+
+    ignoreButton.addEventListener("click", () => {
+      markStationIgnored(result, null);
+      card.remove();
+
+      const remainingCards = container.querySelectorAll(".station-result-card").length;
+      const status = document.getElementById("searchStatus");
+      if (status) {
+        status.textContent = remainingCards > 0
+          ? `${remainingCards}件の候補を表示しています。`
+          : "表示できる駅候補がありません。";
+      }
+
+      // 地図上の同駅の青マーカーも消す
+      Object.values(searchLayer._layers || {}).forEach(layer => {
+        if (!(layer instanceof L.Marker)) return;
+        const ll = layer.getLatLng();
+        if (Math.abs(ll.lat - Number(result.lat)) < 1e-7 &&
+            Math.abs(ll.lng - Number(result.lon)) < 1e-7) {
+          searchLayer.removeLayer(layer);
+        }
+      });
     });
 
     addButton.addEventListener("click", () => {
@@ -1447,6 +1598,10 @@ function showSearchResultOnMap(result, name) {
   const lng = Number(result.lon);
 
   searchLayer.clearLayers();
+
+  if (isIgnoredStation(result)) {
+    return;
+  }
 
   const existing = findExistingStationMatch(result);
   if (existing) {
@@ -1602,6 +1757,12 @@ document.addEventListener("click", event => {
       registeredShowButton.dataset.rallyId,
       registeredShowButton.dataset.checkpointId
     );
+    return;
+  }
+
+  const searchIgnoreButton = event.target.closest(".search-popup-ignore-button");
+  if (searchIgnoreButton) {
+    ignoreStationFromSearchPopup(searchIgnoreButton);
     return;
   }
 
