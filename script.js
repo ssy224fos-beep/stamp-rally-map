@@ -1,6 +1,7 @@
 const VISITED_STORAGE_KEY = "stampRallyMapVisitedShared_v2";
 const CUSTOM_STORAGE_KEY = "stampRallyMapCustomCheckpoints_v2";
 const RALLY_STORAGE_KEY = "stampRallyMapRallies_v2";
+const SEARCH_RESULTS_STORAGE_KEY = "stampRallyMapSearchResults_v1";
 
 const LEGACY_CUSTOM_STORAGE_KEY = "stampRallyMapCustomCheckpoints_v1";
 const LEGACY_RALLY_STORAGE_KEY = "stampRallyMapRallies_v1";
@@ -514,7 +515,14 @@ function buildFilters() {
   const container = document.getElementById("rallyFilters");
   container.innerHTML = "";
 
-  stampRallies.forEach(rally => {
+  const filteredRallies = getFilteredRallies();
+
+  if (filteredRallies.length === 0) {
+    container.innerHTML = `<div class="filtered-section-empty">条件に一致するラリーはありません。</div>`;
+    return;
+  }
+
+  filteredRallies.forEach(rally => {
     const label = document.createElement("label");
     label.className = "rally-filter";
 
@@ -541,18 +549,72 @@ function buildFilters() {
   });
 }
 
+
 function refreshSearchRallySelects() {
   // 検索候補内のラリー選択欄は検索結果を再表示した際に最新化されます。
 }
 
 
+function normalizeRallyFilterText(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/g, "");
+}
+
+function getRallyListFilterValue() {
+  const input = document.getElementById("rallyListFilter");
+  return input ? input.value.trim() : "";
+}
+
+
+function getRallyAchievementFilterValue() {
+  const select = document.getElementById("rallyAchievementFilter");
+  return select ? select.value : "all";
+}
+
+function isRallyCompleted(rally) {
+  return rally.checkpoints.length > 0 &&
+    rally.checkpoints.every(checkpoint => checkpoint.visited);
+}
+
+function getFilteredRallies() {
+  const rawFilter = getRallyListFilterValue();
+  const normalizedFilter = normalizeRallyFilterText(rawFilter);
+  const achievement = getRallyAchievementFilterValue();
+
+  return stampRallies.filter(rally => {
+    const nameMatches = !normalizedFilter ||
+      normalizeRallyFilterText(rally.name).includes(normalizedFilter);
+
+    const completed = isRallyCompleted(rally);
+    const statusMatches =
+      achievement === "all" ||
+      (achievement === "completed" && completed) ||
+      (achievement === "incomplete" && !completed);
+
+    return nameMatches && statusMatches;
+  });
+}
+
+function applyRallyFiltersEverywhere() {
+  buildRallyManager();
+  buildFilters();
+  buildProgress();
+  buildRegisteredStationList();
+}
+
 function buildRallyManager() {
   const container = document.getElementById("rallyManagerList");
   if (!container) return;
 
+  const rawFilter = getRallyListFilterValue();
+  const achievement = getRallyAchievementFilterValue();
+  const filteredRallies = getFilteredRallies();
+
   container.innerHTML = "";
 
-  stampRallies.forEach(rally => {
+  filteredRallies.forEach(rally => {
     const card = document.createElement("div");
     card.className = "rally-manager-card";
 
@@ -593,6 +655,32 @@ function buildRallyManager() {
     container.appendChild(card);
   });
 
+  if (stampRallies.length === 0) {
+    container.innerHTML = `
+      <div class="rally-manager-empty-filter">
+        まだラリーがありません。「新しいラリー名」を入力して作成してください。
+      </div>
+    `;
+  } else if (filteredRallies.length === 0) {
+    container.innerHTML = `
+      <div class="rally-manager-empty-filter">
+        「${escapeHtml(rawFilter)}」に一致するラリーはありません。
+      </div>
+    `;
+  }
+
+  const summary = document.getElementById("rallyFilterSummary");
+  if (summary) {
+    const hasFilter = Boolean(rawFilter) || achievement !== "all";
+    summary.textContent = hasFilter
+      ? `${filteredRallies.length} / ${stampRallies.length} 件を表示`
+      : `${stampRallies.length} 件のラリー`;
+  }
+
+  const clearButton = document.getElementById("clearRallyListFilter");
+  if (clearButton) {
+    clearButton.disabled = !rawFilter;
+  }
 }
 
 function createRally() {
@@ -715,9 +803,16 @@ function buildRegisteredStationList() {
     return;
   }
 
+  const filteredRallies = getFilteredRallies();
+
+  if (filteredRallies.length === 0) {
+    container.innerHTML = `<div class="filtered-section-empty">条件に一致するラリーはありません。</div>`;
+    return;
+  }
+
   let anyStation = false;
 
-  stampRallies.forEach(rally => {
+  filteredRallies.forEach(rally => {
     if (rally.checkpoints.length === 0) return;
     anyStation = true;
 
@@ -786,10 +881,12 @@ function buildProgress() {
   const container = document.getElementById("rallyProgress");
   container.innerHTML = "";
 
+  const filteredRallies = getFilteredRallies();
+
   let overallVisited = 0;
   let overallTotal = 0;
 
-  stampRallies.forEach(rally => {
+  filteredRallies.forEach(rally => {
     const total = rally.checkpoints.length;
     const visited = rally.checkpoints.filter(cp => cp.visited).length;
     const percent = total === 0 ? 0 : Math.round((visited / total) * 100);
@@ -811,6 +908,10 @@ function buildProgress() {
     container.appendChild(card);
   });
 
+  if (filteredRallies.length === 0) {
+    container.innerHTML = `<div class="filtered-section-empty">条件に一致するラリーはありません。</div>`;
+  }
+
   document.getElementById("overallCount").textContent = `${overallVisited} / ${overallTotal}`;
 
   const overallPercent =
@@ -818,7 +919,6 @@ function buildProgress() {
 
   document.getElementById("overallProgressBar").style.width = `${overallPercent}%`;
 }
-
 
 function getOverpassElementLatLng(element) {
   if (typeof element.lat === "number" && typeof element.lon === "number") {
@@ -1092,8 +1192,56 @@ function addStationFromSearchPopup(button) {
 }
 
 
-function showAreaSearchMarkers(results) {
+
+function sanitizeSearchResultForStorage(result) {
+  return {
+    lat: String(result.lat),
+    lon: String(result.lon),
+    name: result.name || result.namedetails?.name || "",
+    display_name: result.display_name || "",
+    category: result.category || "railway",
+    type: result.type || "station",
+    osm_type: result.osm_type || "unknown",
+    osm_id: String(result.osm_id || ""),
+    namedetails: { name: result.namedetails?.name || result.name || "" },
+    address: result.address || {}
+  };
+}
+
+function savePersistentSearchResults(results) {
+  try {
+    localStorage.setItem(
+      SEARCH_RESULTS_STORAGE_KEY,
+      JSON.stringify(results.map(sanitizeSearchResultForStorage))
+    );
+  } catch (error) {
+    console.warn("駅検索結果の保存に失敗しました。", error);
+  }
+}
+
+function loadPersistentSearchResults() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SEARCH_RESULTS_STORAGE_KEY) || "[]");
+    return Array.isArray(saved) ? saved : [];
+  } catch (error) {
+    console.warn("保存済み駅検索結果を読み込めませんでした。", error);
+    return [];
+  }
+}
+
+function restorePersistentSearchMarkers() {
+  const saved = loadPersistentSearchResults();
+  if (saved.length > 0) {
+    showAreaSearchMarkers(saved, false);
+  }
+}
+
+function showAreaSearchMarkers(results, persist = true) {
   searchLayer.clearLayers();
+
+  if (persist) {
+    savePersistentSearchResults(results);
+  }
 
   results.forEach(result => {
     // すでにいずれかのラリーへ登録済みの駅は、
@@ -1318,6 +1466,8 @@ function showSearchResultOnMap(result, name) {
     return;
   }
 
+  savePersistentSearchResults([result]);
+
   const marker = L.marker([lat, lng], {
     icon: createSearchIcon(),
     title: name
@@ -1391,6 +1541,11 @@ function addStationToRally(station, button) {
   buildRallyManager();
   buildRegisteredStationList();
 
+  const storedSearchResults = loadPersistentSearchResults();
+  if (storedSearchResults.length > 0) {
+    showAreaSearchMarkers(storedSearchResults, false);
+  }
+
   if (button) {
     button.textContent = "追加しました";
     button.disabled = true;
@@ -1458,6 +1613,29 @@ document.addEventListener("click", event => {
 
 document.getElementById("createRallyButton").addEventListener("click", createRally);
 
+document.getElementById("rallyListFilter").addEventListener("input", () => {
+  applyRallyFiltersEverywhere();
+});
+
+document.getElementById("rallyListFilter").addEventListener("keydown", event => {
+  if (event.key === "Escape") {
+    event.target.value = "";
+    applyRallyFiltersEverywhere();
+  }
+});
+
+document.getElementById("clearRallyListFilter").addEventListener("click", () => {
+  const input = document.getElementById("rallyListFilter");
+  input.value = "";
+  document.getElementById("rallyAchievementFilter").value = "all";
+  applyRallyFiltersEverywhere();
+  input.focus();
+});
+
+document.getElementById("rallyAchievementFilter").addEventListener("change", () => {
+  applyRallyFiltersEverywhere();
+});
+
 document.getElementById("newRallyName").addEventListener("keydown", event => {
   if (event.key === "Enter") {
     event.preventDefault();
@@ -1489,3 +1667,4 @@ buildRallyManager();
 buildFilters();
 buildProgress();
 buildRegisteredStationList();
+restorePersistentSearchMarkers();

@@ -730,3 +730,83 @@ button, input, select { font: inherit; }
   font-size: 11px;
   color: #64748b;
 }
+
+
+/* Phase 8.3: 作成済みラリー一覧のフィルター */
+.rally-filter-box {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 7px;
+  margin: 10px 0 6px;
+}
+
+.rally-filter-box input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 8px;
+  background: #fff;
+}
+
+.rally-filter-box button {
+  border: 0;
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: #64748b;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rally-filter-box button:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.rally-filter-summary {
+  min-height: 18px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.rally-manager-empty-filter {
+  padding: 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+
+/* Phase 8.4 */
+.rally-status-filter {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0 8px;
+}
+.rally-status-filter label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+}
+.rally-status-filter select {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 8px;
+  background: #fff;
+}
+.filtered-section-empty {
+  padding: 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}

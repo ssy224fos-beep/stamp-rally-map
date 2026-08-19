@@ -55,6 +55,27 @@
           <button id="createRallyButton" type="button">＋ 作成</button>
         </div>
 
+        <div class="rally-filter-box">
+          <input
+            id="rallyListFilter"
+            type="search"
+            placeholder="ラリー名で絞り込み"
+            autocomplete="off"
+          >
+          <button id="clearRallyListFilter" type="button">クリア</button>
+        </div>
+
+        <div class="rally-status-filter">
+          <label for="rallyAchievementFilter">達成状況</label>
+          <select id="rallyAchievementFilter">
+            <option value="all">すべて</option>
+            <option value="completed">達成済み</option>
+            <option value="incomplete">未達成</option>
+          </select>
+        </div>
+
+        <div id="rallyFilterSummary" class="rally-filter-summary"></div>
+
         <div id="rallyManagerList" class="rally-manager-list"></div>
       </section>
 
