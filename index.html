@@ -23,6 +23,20 @@
 
   <main class="app-layout">
     <section class="map-panel">
+      <div class="map-toolbar">
+        <input id="stationSearchInput" type="search" placeholder="駅名を入力（例：新大阪駅）">
+        <button id="stationSearchButton" type="button">駅を検索</button>
+      </div>
+
+      <div id="searchPanel" class="search-panel hidden">
+        <div class="search-panel-header">
+          <strong>駅検索結果</strong>
+          <button id="closeSearchPanel" type="button" aria-label="閉じる">×</button>
+        </div>
+        <div id="searchStatus" class="search-status"></div>
+        <div id="stationSearchResults" class="station-search-results"></div>
+      </div>
+
       <div id="map"></div>
     </section>
 
@@ -41,6 +55,7 @@
         <h2>凡例</h2>
         <div><span class="legend-dot visited"></span> 訪問済み</div>
         <div><span class="legend-dot unvisited"></span> 未訪問</div>
+        <div><span class="legend-dot search-result"></span> 検索結果</div>
       </section>
     </aside>
   </main>
