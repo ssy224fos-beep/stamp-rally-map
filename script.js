@@ -16,6 +16,10 @@ const rallyLayers = {};
 const checkpointMarkers = {};
 const searchLayer = L.layerGroup().addTo(map);
 
+const OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter";
+const MIN_AREA_SEARCH_ZOOM = 11;
+const MAX_AREA_SEARCH_RESULTS = 120;
+
 function makeCustomCheckpointId(rallyId, osmType, osmId) {
   return `custom-${rallyId}-${osmType}-${osmId}`;
 }
@@ -279,6 +283,191 @@ function buildProgress() {
   document.getElementById("overallProgressBar").style.width = `${overallPercent}%`;
 }
 
+
+function getOverpassElementLatLng(element) {
+  if (typeof element.lat === "number" && typeof element.lon === "number") {
+    return { lat: element.lat, lng: element.lon };
+  }
+
+  if (element.center &&
+      typeof element.center.lat === "number" &&
+      typeof element.center.lon === "number") {
+    return { lat: element.center.lat, lng: element.center.lon };
+  }
+
+  return null;
+}
+
+function overpassElementToSearchResult(element) {
+  const point = getOverpassElementLatLng(element);
+  if (!point) return null;
+
+  const tags = element.tags || {};
+  const name =
+    tags["name:ja"] ||
+    tags.name ||
+    tags["official_name:ja"] ||
+    tags.official_name ||
+    "名称不明の駅";
+
+  const addressParts = [
+    tags["addr:province"],
+    tags["addr:city"],
+    tags["addr:suburb"],
+    tags["addr:quarter"]
+  ].filter(Boolean);
+
+  return {
+    lat: String(point.lat),
+    lon: String(point.lng),
+    name,
+    display_name: addressParts.length > 0
+      ? `${name}, ${addressParts.join(", ")}`
+      : name,
+    category: "railway",
+    type: "station",
+    osm_type: element.type || "node",
+    osm_id: element.id,
+    namedetails: { name },
+    address: {
+      province: tags["addr:province"] || "",
+      state: tags["addr:province"] || ""
+    }
+  };
+}
+
+function dedupeStations(results) {
+  const seen = new Set();
+  const unique = [];
+
+  results.forEach(result => {
+    const lat = Number(result.lat);
+    const lng = Number(result.lon);
+    const name = (result.namedetails?.name || result.name || "").trim();
+    const key = `${name}|${lat.toFixed(5)}|${lng.toFixed(5)}`;
+
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(result);
+    }
+  });
+
+  return unique;
+}
+
+async function searchStationsInCurrentArea() {
+  const button = document.getElementById("areaStationSearchButton");
+  const panel = document.getElementById("searchPanel");
+  const status = document.getElementById("searchStatus");
+  const resultsContainer = document.getElementById("stationSearchResults");
+
+  panel.classList.remove("hidden");
+  searchLayer.clearLayers();
+  resultsContainer.innerHTML = "";
+
+  if (map.getZoom() < MIN_AREA_SEARCH_ZOOM) {
+    status.textContent =
+      `地図をもう少し拡大してください。ズーム ${MIN_AREA_SEARCH_ZOOM} 以上で検索できます。`;
+    return;
+  }
+
+  const bounds = map.getBounds();
+  const south = bounds.getSouth().toFixed(6);
+  const west = bounds.getWest().toFixed(6);
+  const north = bounds.getNorth().toFixed(6);
+  const east = bounds.getEast().toFixed(6);
+
+  const query = `
+[out:json][timeout:20];
+(
+  node["railway"="station"](${south},${west},${north},${east});
+  way["railway"="station"](${south},${west},${north},${east});
+  relation["railway"="station"](${south},${west},${north},${east});
+);
+out center tags;
+`;
+
+  status.textContent = "現在の地図範囲から駅を検索中...";
+  button.disabled = true;
+
+  try {
+    const response = await fetch(OVERPASS_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        "Accept": "application/json"
+      },
+      body: new URLSearchParams({ data: query })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    const stations = dedupeStations(
+      (data.elements || [])
+        .map(overpassElementToSearchResult)
+        .filter(Boolean)
+        .filter(result => {
+          const name = result.namedetails?.name || result.name || "";
+          return name !== "名称不明の駅";
+        })
+    );
+
+    if (stations.length === 0) {
+      status.textContent =
+        "この範囲には駅が見つかりませんでした。地図を移動するか、少し範囲を広げてください。";
+      return;
+    }
+
+    const limited = stations.slice(0, MAX_AREA_SEARCH_RESULTS);
+
+    status.textContent =
+      stations.length > MAX_AREA_SEARCH_RESULTS
+        ? `${stations.length}件見つかりました。負荷を抑えるため先頭${MAX_AREA_SEARCH_RESULTS}件を表示します。`
+        : `${stations.length}件の駅が見つかりました。青いマーカーまたは一覧から選べます。`;
+
+    renderStationResults(limited);
+    showAreaSearchMarkers(limited);
+
+    const note = document.createElement("div");
+    note.className = "area-search-note";
+    note.textContent =
+      "検索結果は一時表示です。「＋ ラリーに追加」を押した駅だけが保存されます。";
+    resultsContainer.prepend(note);
+  } catch (error) {
+    console.error(error);
+    status.textContent =
+      "範囲検索に失敗しました。Overpass APIが混雑している可能性があります。少し時間をおいて再度お試しください。";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function showAreaSearchMarkers(results) {
+  searchLayer.clearLayers();
+
+  results.forEach(result => {
+    const lat = Number(result.lat);
+    const lng = Number(result.lon);
+    const name = result.namedetails?.name || normalizeStationName(result);
+
+    const marker = L.marker([lat, lng], {
+      icon: createSearchIcon(),
+      title: name
+    }).addTo(searchLayer);
+
+    marker.bindPopup(`
+      <div class="popup-content">
+        <div class="popup-title">${escapeHtml(name)}</div>
+        <div class="popup-row">この範囲の駅検索結果</div>
+      </div>
+    `);
+  });
+}
+
 function normalizeStationName(result) {
   return result.name ||
     result.display_name?.split(",")[0] ||
@@ -495,6 +684,7 @@ document.addEventListener("click", event => {
 });
 
 document.getElementById("stationSearchButton").addEventListener("click", searchStations);
+document.getElementById("areaStationSearchButton").addEventListener("click", searchStationsInCurrentArea);
 
 document.getElementById("stationSearchInput").addEventListener("keydown", event => {
   if (event.key === "Enter") {
