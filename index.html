@@ -4,26 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>スタンプラリーマップ</title>
-
-  <!-- Leaflet CSS -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  >
-
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
   <header class="app-header">
     <div>
       <h1>スタンプラリーマップ</h1>
       <p>日本全国のチェックポイントを地図で確認</p>
     </div>
-
     <div class="overall-progress">
       <span id="overallCount">0 / 0</span>
-
       <div class="progress-track">
         <div id="overallProgressBar" class="progress-bar"></div>
       </div>
@@ -31,13 +22,11 @@
   </header>
 
   <main class="app-layout">
-
     <section class="map-panel">
       <div id="map"></div>
     </section>
 
     <aside class="sidebar">
-
       <section class="sidebar-section">
         <h2>表示するラリー</h2>
         <div id="rallyFilters" class="rally-filters"></div>
@@ -50,30 +39,14 @@
 
       <section class="sidebar-section legend">
         <h2>凡例</h2>
-
-        <div>
-          <span class="legend-dot visited"></span>
-          訪問済み
-        </div>
-
-        <div>
-          <span class="legend-dot unvisited"></span>
-          未訪問
-        </div>
+        <div><span class="legend-dot visited"></span> 訪問済み</div>
+        <div><span class="legend-dot unvisited"></span> 未訪問</div>
       </section>
-
     </aside>
-
   </main>
 
-  <!-- Leaflet JavaScript -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <!-- Stamp Rally Data -->
   <script src="data.js"></script>
-
-  <!-- Main Script -->
   <script src="script.js"></script>
-
 </body>
 </html>

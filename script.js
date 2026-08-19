@@ -1,3 +1,5 @@
+const STORAGE_KEY = "stampRallyMapVisited_v1";
+
 const map = L.map("map", {
   zoomControl: true,
   minZoom: 4,
@@ -9,42 +11,33 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
 
-const STORAGE_KEY = "stampRallyProgressV1";
-
 const rallyLayers = {};
-const markerRegistry = {};
+const checkpointMarkers = {};
 
-function getSavedProgress() {
+function loadSavedVisitedStates() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+
+    stampRallies.forEach(rally => {
+      rally.checkpoints.forEach(checkpoint => {
+        if (Object.prototype.hasOwnProperty.call(saved, checkpoint.id)) {
+          checkpoint.visited = Boolean(saved[checkpoint.id]);
+        }
+      });
+    });
   } catch (error) {
-    console.warn("保存済みデータの読み込みに失敗しました。", error);
-    return {};
+    console.warn("保存済みデータを読み込めませんでした。", error);
   }
 }
 
-function saveProgress() {
-  const progress = {};
-
+function saveVisitedStates() {
+  const data = {};
   stampRallies.forEach(rally => {
     rally.checkpoints.forEach(checkpoint => {
-      progress[checkpoint.id] = checkpoint.visited;
+      data[checkpoint.id] = checkpoint.visited;
     });
   });
-
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
-}
-
-function applySavedProgress() {
-  const saved = getSavedProgress();
-
-  stampRallies.forEach(rally => {
-    rally.checkpoints.forEach(checkpoint => {
-      if (Object.prototype.hasOwnProperty.call(saved, checkpoint.id)) {
-        checkpoint.visited = saved[checkpoint.id];
-      }
-    });
-  });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
 function createCheckpointIcon(visited) {
@@ -70,13 +63,49 @@ function createPopup(rally, checkpoint) {
 
       <button
         type="button"
-        class="visit-toggle-button ${checkpoint.visited ? "visited" : "unvisited"}"
-        onclick="toggleCheckpointVisited('${rally.id}', '${checkpoint.id}')"
+        class="visit-toggle-button ${checkpoint.visited ? "mark-unvisited" : "mark-visited"}"
+        data-rally-id="${rally.id}"
+        data-checkpoint-id="${checkpoint.id}"
       >
-        ${checkpoint.visited ? "未訪問に戻す" : "訪問済みにする"}
+        ${checkpoint.visited ? "未訪問に戻す" : "✓ 訪問済みにする"}
       </button>
+
+      <div class="save-note">変更内容はこのブラウザに自動保存されます</div>
     </div>
   `;
+}
+
+function findCheckpoint(rallyId, checkpointId) {
+  const rally = stampRallies.find(r => r.id === rallyId);
+  if (!rally) return null;
+
+  const checkpoint = rally.checkpoints.find(cp => cp.id === checkpointId);
+  if (!checkpoint) return null;
+
+  return { rally, checkpoint };
+}
+
+function updateMarker(rally, checkpoint) {
+  const marker = checkpointMarkers[checkpoint.id];
+  if (!marker) return;
+
+  marker.setIcon(createCheckpointIcon(checkpoint.visited));
+  marker.setPopupContent(createPopup(rally, checkpoint));
+}
+
+function toggleVisited(rallyId, checkpointId) {
+  const result = findCheckpoint(rallyId, checkpointId);
+  if (!result) return;
+
+  const { rally, checkpoint } = result;
+  checkpoint.visited = !checkpoint.visited;
+
+  saveVisitedStates();
+  updateMarker(rally, checkpoint);
+  buildProgress();
+
+  const marker = checkpointMarkers[checkpoint.id];
+  if (marker) marker.openPopup();
 }
 
 function buildLayers() {
@@ -84,19 +113,14 @@ function buildLayers() {
     const layer = L.layerGroup();
 
     rally.checkpoints.forEach(checkpoint => {
-      const marker = L.marker(
-        [checkpoint.lat, checkpoint.lng],
-        { icon: createCheckpointIcon(checkpoint.visited) }
-      );
+      const marker = L.marker([checkpoint.lat, checkpoint.lng], {
+        icon: createCheckpointIcon(checkpoint.visited),
+        title: checkpoint.name
+      });
 
       marker.bindPopup(createPopup(rally, checkpoint));
       marker.addTo(layer);
-
-      markerRegistry[checkpoint.id] = {
-        marker,
-        rally,
-        checkpoint
-      };
+      checkpointMarkers[checkpoint.id] = marker;
     });
 
     layer.addTo(map);
@@ -119,7 +143,6 @@ function buildFilters() {
 
     input.addEventListener("change", () => {
       const layer = rallyLayers[rally.id];
-
       if (input.checked) {
         layer.addTo(map);
       } else {
@@ -162,62 +185,25 @@ function buildProgress() {
         <div class="progress-bar" style="width:${percent}%"></div>
       </div>
     `;
-
     container.appendChild(card);
   });
 
-  document.getElementById("overallCount").textContent =
-    `${overallVisited} / ${overallTotal}`;
+  document.getElementById("overallCount").textContent = `${overallVisited} / ${overallTotal}`;
 
   const overallPercent =
     overallTotal === 0 ? 0 : Math.round((overallVisited / overallTotal) * 100);
 
-  document.getElementById("overallProgressBar").style.width =
-    `${overallPercent}%`;
+  document.getElementById("overallProgressBar").style.width = `${overallPercent}%`;
 }
 
-function refreshMarker(checkpointId) {
-  const entry = markerRegistry[checkpointId];
-  if (!entry) return;
+document.addEventListener("click", event => {
+  const button = event.target.closest(".visit-toggle-button");
+  if (!button) return;
 
-  const { marker, rally, checkpoint } = entry;
+  toggleVisited(button.dataset.rallyId, button.dataset.checkpointId);
+});
 
-  marker.setIcon(createCheckpointIcon(checkpoint.visited));
-  marker.setPopupContent(createPopup(rally, checkpoint));
-}
-
-function toggleCheckpointVisited(rallyId, checkpointId) {
-  const rally = stampRallies.find(item => item.id === rallyId);
-  if (!rally) return;
-
-  const checkpoint = rally.checkpoints.find(item => item.id === checkpointId);
-  if (!checkpoint) return;
-
-  checkpoint.visited = !checkpoint.visited;
-
-  saveProgress();
-  refreshMarker(checkpointId);
-  buildProgress();
-
-  const entry = markerRegistry[checkpointId];
-  if (entry) {
-    entry.marker.openPopup();
-  }
-}
-
-function resetProgress() {
-  if (!confirm("すべての訪問状況を初期状態に戻しますか？")) {
-    return;
-  }
-
-  localStorage.removeItem(STORAGE_KEY);
-  location.reload();
-}
-
-applySavedProgress();
+loadSavedVisitedStates();
 buildLayers();
 buildFilters();
 buildProgress();
-
-window.toggleCheckpointVisited = toggleCheckpointVisited;
-window.resetProgress = resetProgress;
