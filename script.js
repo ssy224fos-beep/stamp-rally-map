@@ -1,5 +1,12 @@
 const VISITED_STORAGE_KEY = "stampRallyMapVisited_v1";
 const CUSTOM_STORAGE_KEY = "stampRallyMapCustomCheckpoints_v1";
+const RALLY_STORAGE_KEY = "stampRallyMapRallies_v1";
+
+const DEFAULT_RALLY_SNAPSHOT = JSON.parse(JSON.stringify(stampRallies));
+const DEFAULT_RALLY_IDS = new Set(DEFAULT_RALLY_SNAPSHOT.map(rally => rally.id));
+const DEFAULT_RALLY_NAMES = Object.fromEntries(
+  DEFAULT_RALLY_SNAPSHOT.map(rally => [rally.id, rally.name])
+);
 
 const map = L.map("map", {
   zoomControl: true,
@@ -19,6 +26,70 @@ const searchLayer = L.layerGroup().addTo(map);
 const OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter";
 const MIN_AREA_SEARCH_ZOOM = 11;
 const MAX_AREA_SEARCH_RESULTS = 120;
+
+function loadRallySettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RALLY_STORAGE_KEY) || "{}");
+    const customRallies = Array.isArray(saved.customRallies) ? saved.customRallies : [];
+    const renamed = saved.renamed && typeof saved.renamed === "object" ? saved.renamed : {};
+    const deleted = new Set(Array.isArray(saved.deleted) ? saved.deleted : []);
+
+    for (let i = stampRallies.length - 1; i >= 0; i--) {
+      if (deleted.has(stampRallies[i].id)) {
+        stampRallies.splice(i, 1);
+      }
+    }
+
+    stampRallies.forEach(rally => {
+      if (typeof renamed[rally.id] === "string" && renamed[rally.id].trim()) {
+        rally.name = renamed[rally.id].trim();
+      }
+    });
+
+    customRallies.forEach(item => {
+      if (!item || typeof item.id !== "string" || typeof item.name !== "string") return;
+      if (stampRallies.some(rally => rally.id === item.id)) return;
+
+      stampRallies.push({
+        id: item.id,
+        name: item.name.trim() || "名称未設定ラリー",
+        checkpoints: []
+      });
+    });
+  } catch (error) {
+    console.warn("ラリー設定を読み込めませんでした。", error);
+  }
+}
+
+function saveRallySettings() {
+  const currentIds = new Set(stampRallies.map(rally => rally.id));
+
+  const customRallies = stampRallies
+    .filter(rally => !DEFAULT_RALLY_IDS.has(rally.id))
+    .map(rally => ({
+      id: rally.id,
+      name: rally.name
+    }));
+
+  const renamed = {};
+  stampRallies.forEach(rally => {
+    if (!DEFAULT_RALLY_IDS.has(rally.id)) return;
+    if (rally.name !== DEFAULT_RALLY_NAMES[rally.id]) {
+      renamed[rally.id] = rally.name;
+    }
+  });
+
+  const deleted = [...DEFAULT_RALLY_IDS].filter(id => !currentIds.has(id));
+
+  localStorage.setItem(
+    RALLY_STORAGE_KEY,
+    JSON.stringify({ customRallies, renamed, deleted })
+  );
+}
+
+function makeNewRallyId() {
+  return `rally-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 function makeCustomCheckpointId(rallyId, osmType, osmId) {
   return `custom-${rallyId}-${osmType}-${osmId}`;
@@ -389,7 +460,7 @@ function buildFilters() {
 
     const input = document.createElement("input");
     input.type = "checkbox";
-    input.checked = true;
+    input.checked = Boolean(rallyLayers[rally.id] && map.hasLayer(rallyLayers[rally.id]));
     input.dataset.rallyId = rally.id;
 
     input.addEventListener("change", () => {
@@ -408,6 +479,209 @@ function buildFilters() {
     label.appendChild(text);
     container.appendChild(label);
   });
+}
+
+function refreshSearchRallySelects() {
+  document.querySelectorAll(".rally-select, .search-popup-rally-select").forEach(select => {
+    const previous = select.value;
+    select.innerHTML = buildRallySelectOptions(previous);
+
+    if ([...select.options].some(option => option.value === previous)) {
+      select.value = previous;
+    } else if (select.options.length > 0) {
+      select.selectedIndex = 0;
+    }
+  });
+}
+
+function buildRallyManager() {
+  const container = document.getElementById("rallyManagerList");
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  stampRallies.forEach(rally => {
+    const card = document.createElement("div");
+    card.className = "rally-manager-card";
+
+    const isDefault = DEFAULT_RALLY_IDS.has(rally.id);
+    const count = rally.checkpoints.length;
+
+    card.innerHTML = `
+      <div class="rally-manager-meta">
+        <span class="rally-type-badge ${isDefault ? "" : "custom"}">
+          ${isDefault ? "初期ラリー" : "追加ラリー"}
+        </span>
+        <span>${count}地点</span>
+      </div>
+
+      <input
+        type="text"
+        class="rally-manager-name"
+        value="${escapeHtml(rally.name)}"
+        maxlength="60"
+      >
+
+      <div class="rally-manager-actions">
+        <button
+          type="button"
+          class="rally-manager-save"
+          data-rally-id="${rally.id}"
+        >
+          名称を保存
+        </button>
+
+        <button
+          type="button"
+          class="rally-manager-delete"
+          data-rally-id="${rally.id}"
+        >
+          削除
+        </button>
+      </div>
+    `;
+
+    container.appendChild(card);
+  });
+
+  const restoreButton = document.getElementById("restoreDefaultRalliesButton");
+  if (restoreButton) {
+    restoreButton.disabled = [...DEFAULT_RALLY_IDS].every(
+      id => stampRallies.some(rally => rally.id === id)
+    );
+  }
+}
+
+function createRally() {
+  const input = document.getElementById("newRallyName");
+  if (!input) return;
+
+  const name = input.value.trim();
+  if (!name) {
+    alert("新しいラリー名を入力してください。");
+    input.focus();
+    return;
+  }
+
+  const rally = {
+    id: makeNewRallyId(),
+    name,
+    checkpoints: []
+  };
+
+  stampRallies.push(rally);
+  rallyLayers[rally.id] = L.layerGroup().addTo(map);
+
+  saveRallySettings();
+  buildRallyManager();
+  buildFilters();
+  buildProgress();
+  refreshSearchRallySelects();
+
+  input.value = "";
+  input.focus();
+}
+
+function renameRally(button) {
+  const rallyId = button.dataset.rallyId;
+  const rally = stampRallies.find(item => item.id === rallyId);
+  if (!rally) return;
+
+  const card = button.closest(".rally-manager-card");
+  const input = card?.querySelector(".rally-manager-name");
+  if (!input) return;
+
+  const newName = input.value.trim();
+  if (!newName) {
+    alert("ラリー名を入力してください。");
+    input.focus();
+    return;
+  }
+
+  rally.name = newName;
+
+  rally.checkpoints.forEach(checkpoint => {
+    updateMarker(rally, checkpoint);
+  });
+
+  saveRallySettings();
+  buildRallyManager();
+  buildFilters();
+  buildProgress();
+  refreshSearchRallySelects();
+}
+
+function deleteRally(button) {
+  const rallyId = button.dataset.rallyId;
+  const rallyIndex = stampRallies.findIndex(item => item.id === rallyId);
+  if (rallyIndex < 0) return;
+
+  if (stampRallies.length <= 1) {
+    alert("ラリーは少なくとも1つ残してください。");
+    return;
+  }
+
+  const rally = stampRallies[rallyIndex];
+  const count = rally.checkpoints.length;
+  const message = count > 0
+    ? `「${rally.name}」を削除しますか？\n登録されている ${count} 地点もこのラリーから削除されます。`
+    : `「${rally.name}」を削除しますか？`;
+
+  if (!confirm(message)) return;
+
+  rally.checkpoints.forEach(checkpoint => {
+    removeCheckpointMarker(checkpoint.id, rally.id);
+    removeVisitedStateKey(checkpoint.id);
+  });
+
+  if (rallyLayers[rally.id]) {
+    map.removeLayer(rallyLayers[rally.id]);
+    delete rallyLayers[rally.id];
+  }
+
+  stampRallies.splice(rallyIndex, 1);
+
+  saveRallySettings();
+  saveCustomCheckpoints();
+  saveVisitedStates();
+
+  buildRallyManager();
+  buildFilters();
+  buildProgress();
+  refreshSearchRallySelects();
+
+  document.getElementById("searchPanel")?.classList.add("hidden");
+  searchLayer.clearLayers();
+}
+
+function restoreDefaultRallies() {
+  const missing = DEFAULT_RALLY_SNAPSHOT.filter(
+    defaultRally => !stampRallies.some(rally => rally.id === defaultRally.id)
+  );
+
+  if (missing.length === 0) return;
+
+  missing.forEach(defaultRally => {
+    const restored = JSON.parse(JSON.stringify(defaultRally));
+    stampRallies.push(restored);
+
+    const layer = L.layerGroup();
+    rallyLayers[restored.id] = layer;
+
+    restored.checkpoints.forEach(checkpoint => {
+      addCheckpointMarker(restored, checkpoint);
+    });
+
+    layer.addTo(map);
+  });
+
+  saveRallySettings();
+  saveVisitedStates();
+
+  buildRallyManager();
+  buildFilters();
+  buildProgress();
+  refreshSearchRallySelects();
 }
 
 function buildProgress() {
@@ -907,9 +1181,21 @@ document.addEventListener("click", event => {
     return;
   }
 
-  const deleteButton = event.target.closest(".custom-edit-delete");
-  if (deleteButton) {
-    deleteCustomCheckpoint(deleteButton);
+  const checkpointDeleteButton = event.target.closest(".custom-edit-delete");
+  if (checkpointDeleteButton) {
+    deleteCustomCheckpoint(checkpointDeleteButton);
+    return;
+  }
+
+  const rallySaveButton = event.target.closest(".rally-manager-save");
+  if (rallySaveButton) {
+    renameRally(rallySaveButton);
+    return;
+  }
+
+  const rallyDeleteButton = event.target.closest(".rally-manager-delete");
+  if (rallyDeleteButton) {
+    deleteRally(rallyDeleteButton);
     return;
   }
 
@@ -918,6 +1204,17 @@ document.addEventListener("click", event => {
     addStationFromSearchPopup(searchAddButton);
   }
 });
+
+document.getElementById("createRallyButton").addEventListener("click", createRally);
+
+document.getElementById("newRallyName").addEventListener("keydown", event => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    createRally();
+  }
+});
+
+document.getElementById("restoreDefaultRalliesButton").addEventListener("click", restoreDefaultRallies);
 
 document.getElementById("stationSearchButton").addEventListener("click", searchStations);
 document.getElementById("areaStationSearchButton").addEventListener("click", searchStationsInCurrentArea);
@@ -934,8 +1231,10 @@ document.getElementById("closeSearchPanel").addEventListener("click", () => {
   searchLayer.clearLayers();
 });
 
+loadRallySettings();
 loadCustomCheckpoints();
 loadSavedVisitedStates();
 buildLayers();
+buildRallyManager();
 buildFilters();
 buildProgress();

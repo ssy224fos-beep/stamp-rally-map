@@ -43,6 +43,26 @@
 
     <aside class="sidebar">
       <section class="sidebar-section">
+        <h2>ラリー管理</h2>
+
+        <div class="rally-create-box">
+          <input
+            id="newRallyName"
+            type="text"
+            maxlength="60"
+            placeholder="新しいラリー名"
+          >
+          <button id="createRallyButton" type="button">＋ 作成</button>
+        </div>
+
+        <div id="rallyManagerList" class="rally-manager-list"></div>
+
+        <button id="restoreDefaultRalliesButton" type="button" class="restore-default-rallies">
+          初期ラリーを復元
+        </button>
+      </section>
+
+      <section class="sidebar-section">
         <h2>表示するラリー</h2>
         <div id="rallyFilters" class="rally-filters"></div>
       </section>

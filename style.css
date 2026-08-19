@@ -455,3 +455,111 @@ button, input, select { font: inherit; }
   color: #64748b;
   line-height: 1.4;
 }
+
+
+.rally-create-box {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+
+.rally-create-box input,
+.rally-manager-name {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 8px;
+  background: #fff;
+}
+
+.rally-create-box button {
+  border: 0;
+  border-radius: 7px;
+  padding: 8px 11px;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rally-manager-list {
+  display: grid;
+  gap: 8px;
+}
+
+.rally-manager-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  padding: 9px;
+}
+
+.rally-manager-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.rally-type-badge {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-weight: 700;
+}
+
+.rally-type-badge.custom {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.rally-manager-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.rally-manager-save,
+.rally-manager-delete,
+.restore-default-rallies {
+  border: 0;
+  border-radius: 7px;
+  padding: 8px 9px;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rally-manager-save {
+  background: #0f766e;
+}
+
+.rally-manager-delete {
+  background: #dc2626;
+}
+
+.restore-default-rallies {
+  width: 100%;
+  margin-top: 10px;
+  background: #64748b;
+}
+
+.restore-default-rallies:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.rally-manager-save:disabled,
+.rally-manager-delete:disabled,
+.rally-create-box button:disabled {
+  opacity: .55;
+  cursor: default;
+}
