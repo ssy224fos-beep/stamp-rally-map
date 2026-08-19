@@ -1,12 +1,9 @@
-const VISITED_STORAGE_KEY = "stampRallyMapVisited_v1";
-const CUSTOM_STORAGE_KEY = "stampRallyMapCustomCheckpoints_v1";
-const RALLY_STORAGE_KEY = "stampRallyMapRallies_v1";
+const VISITED_STORAGE_KEY = "stampRallyMapVisitedShared_v2";
+const CUSTOM_STORAGE_KEY = "stampRallyMapCustomCheckpoints_v2";
+const RALLY_STORAGE_KEY = "stampRallyMapRallies_v2";
 
-const DEFAULT_RALLY_SNAPSHOT = JSON.parse(JSON.stringify(stampRallies));
-const DEFAULT_RALLY_IDS = new Set(DEFAULT_RALLY_SNAPSHOT.map(rally => rally.id));
-const DEFAULT_RALLY_NAMES = Object.fromEntries(
-  DEFAULT_RALLY_SNAPSHOT.map(rally => [rally.id, rally.name])
-);
+const LEGACY_CUSTOM_STORAGE_KEY = "stampRallyMapCustomCheckpoints_v1";
+const LEGACY_RALLY_STORAGE_KEY = "stampRallyMapRallies_v1";
 
 const map = L.map("map", {
   zoomControl: true,
@@ -29,26 +26,15 @@ const MAX_AREA_SEARCH_RESULTS = 120;
 
 function loadRallySettings() {
   try {
-    const saved = JSON.parse(localStorage.getItem(RALLY_STORAGE_KEY) || "{}");
+    const currentRaw = localStorage.getItem(RALLY_STORAGE_KEY);
+    const legacyRaw = localStorage.getItem(LEGACY_RALLY_STORAGE_KEY);
+    const saved = JSON.parse(currentRaw || legacyRaw || "{}");
     const customRallies = Array.isArray(saved.customRallies) ? saved.customRallies : [];
-    const renamed = saved.renamed && typeof saved.renamed === "object" ? saved.renamed : {};
-    const deleted = new Set(Array.isArray(saved.deleted) ? saved.deleted : []);
 
-    for (let i = stampRallies.length - 1; i >= 0; i--) {
-      if (deleted.has(stampRallies[i].id)) {
-        stampRallies.splice(i, 1);
-      }
-    }
-
-    stampRallies.forEach(rally => {
-      if (typeof renamed[rally.id] === "string" && renamed[rally.id].trim()) {
-        rally.name = renamed[rally.id].trim();
-      }
-    });
+    stampRallies.splice(0, stampRallies.length);
 
     customRallies.forEach(item => {
       if (!item || typeof item.id !== "string" || typeof item.name !== "string") return;
-      if (stampRallies.some(rally => rally.id === item.id)) return;
 
       stampRallies.push({
         id: item.id,
@@ -62,33 +48,24 @@ function loadRallySettings() {
 }
 
 function saveRallySettings() {
-  const currentIds = new Set(stampRallies.map(rally => rally.id));
-
-  const customRallies = stampRallies
-    .filter(rally => !DEFAULT_RALLY_IDS.has(rally.id))
-    .map(rally => ({
-      id: rally.id,
-      name: rally.name
-    }));
-
-  const renamed = {};
-  stampRallies.forEach(rally => {
-    if (!DEFAULT_RALLY_IDS.has(rally.id)) return;
-    if (rally.name !== DEFAULT_RALLY_NAMES[rally.id]) {
-      renamed[rally.id] = rally.name;
-    }
-  });
-
-  const deleted = [...DEFAULT_RALLY_IDS].filter(id => !currentIds.has(id));
+  const customRallies = stampRallies.map(rally => ({
+    id: rally.id,
+    name: rally.name
+  }));
 
   localStorage.setItem(
     RALLY_STORAGE_KEY,
-    JSON.stringify({ customRallies, renamed, deleted })
+    JSON.stringify({ customRallies })
   );
 }
 
 function makeNewRallyId() {
   return `rally-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+
+function makeStationKey(osmType, osmId) {
+  return `${osmType || "unknown"}:${osmId || ""}`;
 }
 
 function makeCustomCheckpointId(rallyId, osmType, osmId) {
@@ -97,7 +74,9 @@ function makeCustomCheckpointId(rallyId, osmType, osmId) {
 
 function loadCustomCheckpoints() {
   try {
-    const saved = JSON.parse(localStorage.getItem(CUSTOM_STORAGE_KEY) || "[]");
+    const currentRaw = localStorage.getItem(CUSTOM_STORAGE_KEY);
+    const legacyRaw = localStorage.getItem(LEGACY_CUSTOM_STORAGE_KEY);
+    const saved = JSON.parse(currentRaw || legacyRaw || "[]");
 
     saved.forEach(item => {
       const rally = stampRallies.find(r => r.id === item.rallyId);
@@ -113,7 +92,8 @@ function loadCustomCheckpoints() {
           visited: Boolean(item.visited),
           custom: true,
           osmType: item.osmType,
-          osmId: item.osmId
+          osmId: item.osmId,
+          stationKey: item.stationKey || makeStationKey(item.osmType, item.osmId)
         });
       }
     });
@@ -138,12 +118,19 @@ function saveCustomCheckpoints() {
         lng: cp.lng,
         visited: cp.visited,
         osmType: cp.osmType,
-        osmId: cp.osmId
+        osmId: cp.osmId,
+        stationKey: cp.stationKey || makeStationKey(cp.osmType, cp.osmId)
       });
     });
   });
 
   localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify(custom));
+}
+
+function getCheckpointVisitKey(checkpoint) {
+  return checkpoint.stationKey ||
+    makeStationKey(checkpoint.osmType, checkpoint.osmId) ||
+    checkpoint.id;
 }
 
 function loadSavedVisitedStates() {
@@ -152,8 +139,9 @@ function loadSavedVisitedStates() {
 
     stampRallies.forEach(rally => {
       rally.checkpoints.forEach(checkpoint => {
-        if (Object.prototype.hasOwnProperty.call(saved, checkpoint.id)) {
-          checkpoint.visited = Boolean(saved[checkpoint.id]);
+        const key = getCheckpointVisitKey(checkpoint);
+        if (Object.prototype.hasOwnProperty.call(saved, key)) {
+          checkpoint.visited = Boolean(saved[key]);
         }
       });
     });
@@ -167,12 +155,29 @@ function saveVisitedStates() {
 
   stampRallies.forEach(rally => {
     rally.checkpoints.forEach(checkpoint => {
-      data[checkpoint.id] = checkpoint.visited;
+      data[getCheckpointVisitKey(checkpoint)] = checkpoint.visited;
     });
   });
 
   localStorage.setItem(VISITED_STORAGE_KEY, JSON.stringify(data));
   saveCustomCheckpoints();
+}
+
+function setSharedVisited(checkpoint, visited) {
+  const key = getCheckpointVisitKey(checkpoint);
+
+  stampRallies.forEach(rally => {
+    rally.checkpoints.forEach(cp => {
+      if (getCheckpointVisitKey(cp) === key) {
+        cp.visited = visited;
+        updateMarker(rally, cp);
+      }
+    });
+  });
+
+  saveVisitedStates();
+  buildProgress();
+  buildRegisteredStationList();
 }
 
 function createCheckpointIcon(visited) {
@@ -299,131 +304,15 @@ function toggleVisited(rallyId, checkpointId) {
   const result = findCheckpoint(rallyId, checkpointId);
   if (!result) return;
 
-  const { rally, checkpoint } = result;
-  checkpoint.visited = !checkpoint.visited;
+  const { checkpoint } = result;
+  const newVisited = !checkpoint.visited;
 
-  saveVisitedStates();
-  updateMarker(rally, checkpoint);
-  buildProgress();
+  setSharedVisited(checkpoint, newVisited);
 
   const marker = checkpointMarkers[checkpoint.id];
   if (marker) marker.openPopup();
 }
 
-
-function removeVisitedStateKey(checkpointId) {
-  try {
-    const saved = JSON.parse(localStorage.getItem(VISITED_STORAGE_KEY) || "{}");
-    delete saved[checkpointId];
-    localStorage.setItem(VISITED_STORAGE_KEY, JSON.stringify(saved));
-  } catch (error) {
-    console.warn("訪問済みデータの整理に失敗しました。", error);
-  }
-}
-
-function removeCheckpointMarker(checkpointId, rallyId) {
-  const marker = checkpointMarkers[checkpointId];
-  if (marker && rallyLayers[rallyId]) {
-    rallyLayers[rallyId].removeLayer(marker);
-  }
-  delete checkpointMarkers[checkpointId];
-}
-
-function saveCustomCheckpointEdit(button) {
-  const currentRallyId = button.dataset.rallyId;
-  const checkpointId = button.dataset.checkpointId;
-  const result = findCheckpoint(currentRallyId, checkpointId);
-
-  if (!result || !result.checkpoint.custom) return;
-
-  const popup = button.closest(".popup-content");
-  if (!popup) return;
-
-  const nameInput = popup.querySelector(".custom-edit-name");
-  const rallySelect = popup.querySelector(".custom-edit-rally");
-  if (!nameInput || !rallySelect) return;
-
-  const newName = nameInput.value.trim();
-  const newRallyId = rallySelect.value;
-  const { rally: oldRally, checkpoint } = result;
-
-  if (!newName) {
-    alert("表示名を入力してください。");
-    return;
-  }
-
-  checkpoint.name = newName;
-
-  if (newRallyId === currentRallyId) {
-    saveCustomCheckpoints();
-    saveVisitedStates();
-    updateMarker(oldRally, checkpoint);
-    buildProgress();
-
-    const marker = checkpointMarkers[checkpoint.id];
-    if (marker) marker.openPopup();
-    return;
-  }
-
-  const newRally = stampRallies.find(r => r.id === newRallyId);
-  if (!newRally) return;
-
-  const oldId = checkpoint.id;
-  const newId = makeCustomCheckpointId(
-    newRallyId,
-    checkpoint.osmType || "unknown",
-    checkpoint.osmId || oldId
-  );
-
-  if (newRally.checkpoints.some(cp => cp.id === newId)) {
-    alert("移動先のラリーには、この駅がすでに追加されています。");
-    return;
-  }
-
-  const oldIndex = oldRally.checkpoints.findIndex(cp => cp.id === oldId);
-  if (oldIndex >= 0) {
-    oldRally.checkpoints.splice(oldIndex, 1);
-  }
-
-  removeCheckpointMarker(oldId, currentRallyId);
-  removeVisitedStateKey(oldId);
-
-  checkpoint.id = newId;
-  newRally.checkpoints.push(checkpoint);
-  addCheckpointMarker(newRally, checkpoint);
-
-  saveCustomCheckpoints();
-  saveVisitedStates();
-  buildProgress();
-
-  const marker = checkpointMarkers[checkpoint.id];
-  if (marker) marker.openPopup();
-}
-
-function deleteCustomCheckpoint(button) {
-  const rallyId = button.dataset.rallyId;
-  const checkpointId = button.dataset.checkpointId;
-  const result = findCheckpoint(rallyId, checkpointId);
-
-  if (!result || !result.checkpoint.custom) return;
-
-  const { rally, checkpoint } = result;
-  const ok = confirm(`「${checkpoint.name}」をこのラリーから削除しますか？`);
-  if (!ok) return;
-
-  const index = rally.checkpoints.findIndex(cp => cp.id === checkpointId);
-  if (index >= 0) {
-    rally.checkpoints.splice(index, 1);
-  }
-
-  removeCheckpointMarker(checkpointId, rallyId);
-  removeVisitedStateKey(checkpointId);
-
-  saveCustomCheckpoints();
-  saveVisitedStates();
-  buildProgress();
-  map.closePopup();
-}
 
 function addCheckpointMarker(rally, checkpoint) {
   const marker = L.marker([checkpoint.lat, checkpoint.lng], {
@@ -482,17 +371,9 @@ function buildFilters() {
 }
 
 function refreshSearchRallySelects() {
-  document.querySelectorAll(".rally-select, .search-popup-rally-select").forEach(select => {
-    const previous = select.value;
-    select.innerHTML = buildRallySelectOptions(previous);
-
-    if ([...select.options].some(option => option.value === previous)) {
-      select.value = previous;
-    } else if (select.options.length > 0) {
-      select.selectedIndex = 0;
-    }
-  });
+  // 検索候補内のラリー選択欄は検索結果を再表示した際に最新化されます。
 }
+
 
 function buildRallyManager() {
   const container = document.getElementById("rallyManagerList");
@@ -504,14 +385,11 @@ function buildRallyManager() {
     const card = document.createElement("div");
     card.className = "rally-manager-card";
 
-    const isDefault = DEFAULT_RALLY_IDS.has(rally.id);
     const count = rally.checkpoints.length;
 
     card.innerHTML = `
       <div class="rally-manager-meta">
-        <span class="rally-type-badge ${isDefault ? "" : "custom"}">
-          ${isDefault ? "初期ラリー" : "追加ラリー"}
-        </span>
+        <span class="rally-type-badge custom">ラリー</span>
         <span>${count}地点</span>
       </div>
 
@@ -544,12 +422,6 @@ function buildRallyManager() {
     container.appendChild(card);
   });
 
-  const restoreButton = document.getElementById("restoreDefaultRalliesButton");
-  if (restoreButton) {
-    restoreButton.disabled = [...DEFAULT_RALLY_IDS].every(
-      id => stampRallies.some(rally => rally.id === id)
-    );
-  }
 }
 
 function createRally() {
@@ -576,6 +448,7 @@ function createRally() {
   buildRallyManager();
   buildFilters();
   buildProgress();
+  buildRegisteredStationList();
   refreshSearchRallySelects();
 
   input.value = "";
@@ -608,6 +481,7 @@ function renameRally(button) {
   buildRallyManager();
   buildFilters();
   buildProgress();
+  buildRegisteredStationList();
   refreshSearchRallySelects();
 }
 
@@ -648,40 +522,93 @@ function deleteRally(button) {
   buildRallyManager();
   buildFilters();
   buildProgress();
+  buildRegisteredStationList();
   refreshSearchRallySelects();
 
   document.getElementById("searchPanel")?.classList.add("hidden");
   searchLayer.clearLayers();
 }
 
-function restoreDefaultRallies() {
-  const missing = DEFAULT_RALLY_SNAPSHOT.filter(
-    defaultRally => !stampRallies.some(rally => rally.id === defaultRally.id)
-  );
+function buildRegisteredStationList() {
+  const container = document.getElementById("registeredStationList");
+  if (!container) return;
 
-  if (missing.length === 0) return;
+  container.innerHTML = "";
 
-  missing.forEach(defaultRally => {
-    const restored = JSON.parse(JSON.stringify(defaultRally));
-    stampRallies.push(restored);
+  if (stampRallies.length === 0) {
+    container.innerHTML = `
+      <div class="empty-station-list">
+        ラリーがまだありません。先にラリーを作成してください。
+      </div>
+    `;
+    return;
+  }
 
-    const layer = L.layerGroup();
-    rallyLayers[restored.id] = layer;
+  let anyStation = false;
 
-    restored.checkpoints.forEach(checkpoint => {
-      addCheckpointMarker(restored, checkpoint);
-    });
+  stampRallies.forEach(rally => {
+    if (rally.checkpoints.length === 0) return;
+    anyStation = true;
 
-    layer.addTo(map);
+    const group = document.createElement("div");
+    group.className = "registered-rally-group";
+
+    const rows = [...rally.checkpoints]
+      .sort((a, b) => a.name.localeCompare(b.name, "ja"))
+      .map(checkpoint => `
+        <div class="registered-station-row">
+          <span class="registered-station-status ${checkpoint.visited ? "visited" : "unvisited"}"></span>
+          <div>
+            <div class="registered-station-name">${escapeHtml(checkpoint.name)}</div>
+            <div class="registered-station-prefecture">${escapeHtml(checkpoint.prefecture || "")}</div>
+          </div>
+          <button
+            type="button"
+            class="registered-station-show"
+            data-rally-id="${rally.id}"
+            data-checkpoint-id="${checkpoint.id}"
+          >
+            地図で表示
+          </button>
+        </div>
+      `).join("");
+
+    group.innerHTML = `
+      <div class="registered-rally-header">
+        <span>${escapeHtml(rally.name)}</span>
+        <span>${rally.checkpoints.length}駅</span>
+      </div>
+      ${rows}
+    `;
+
+    container.appendChild(group);
   });
 
-  saveRallySettings();
-  saveVisitedStates();
+  if (!anyStation) {
+    container.innerHTML = `
+      <div class="empty-station-list">
+        まだ駅が登録されていません。駅検索から追加してください。
+      </div>
+    `;
+  }
+}
 
-  buildRallyManager();
-  buildFilters();
-  buildProgress();
-  refreshSearchRallySelects();
+function showRegisteredStation(rallyId, checkpointId) {
+  const result = findCheckpoint(rallyId, checkpointId);
+  if (!result) return;
+
+  const { rally, checkpoint } = result;
+  const layer = rallyLayers[rally.id];
+
+  if (layer && !map.hasLayer(layer)) {
+    layer.addTo(map);
+    buildFilters();
+  }
+
+  map.setView([checkpoint.lat, checkpoint.lng], 15);
+
+  const marker = checkpointMarkers[checkpoint.id];
+  if (marker) marker.openPopup();
 }
 
 function buildProgress() {
@@ -885,11 +812,30 @@ out center tags;
 }
 
 
-function buildRallySelectOptions(selectedRallyId = "station") {
+function buildRallySelectOptions(selectedRallyId = "") {
   return stampRallies.map(rally =>
     `<option value="${rally.id}" ${rally.id === selectedRallyId ? "selected" : ""}>${escapeHtml(rally.name)}</option>`
   ).join("");
 }
+
+function buildRallyCheckboxOptions(namePrefix, selectedIds = []) {
+  if (stampRallies.length === 0) {
+    return `<div class="no-rallies-note">先に右側の「ラリー管理」からラリーを作成してください。</div>`;
+  }
+
+  return stampRallies.map(rally => `
+    <label class="rally-multi-option">
+      <input
+        type="checkbox"
+        name="${escapeHtml(namePrefix)}"
+        value="${rally.id}"
+        ${selectedIds.includes(rally.id) ? "checked" : ""}
+      >
+      <span>${escapeHtml(rally.name)}</span>
+    </label>
+  `).join("");
+}
+
 
 function createSearchResultPopup(result, name) {
   const prefecture = getPrefecture(result);
@@ -904,12 +850,10 @@ function createSearchResultPopup(result, name) {
       <div class="popup-row">${escapeHtml(prefecture || "駅検索結果")}</div>
 
       <div class="search-popup-controls">
-        <label>
-          追加先ラリー
-          <select class="search-popup-rally-select">
-            ${buildRallySelectOptions("station")}
-          </select>
-        </label>
+        <div>追加先ラリー（複数選択可）</div>
+        <div class="rally-multi-select">
+          ${buildRallyCheckboxOptions(`popup-${osmType}-${osmId}`)}
+        </div>
 
         <button
           type="button"
@@ -920,8 +864,9 @@ function createSearchResultPopup(result, name) {
           data-lng="${lng}"
           data-osm-type="${escapeHtml(osmType)}"
           data-osm-id="${escapeHtml(osmId)}"
+          ${stampRallies.length === 0 ? "disabled" : ""}
         >
-          ＋ ラリーに追加
+          ＋ 選択したラリーに追加
         </button>
       </div>
     </div>
@@ -932,11 +877,16 @@ function addStationFromSearchPopup(button) {
   const popupContent = button.closest(".popup-content");
   if (!popupContent) return;
 
-  const select = popupContent.querySelector(".search-popup-rally-select");
-  if (!select) return;
+  const selectedIds = [...popupContent.querySelectorAll(
+    '.rally-multi-select input[type="checkbox"]:checked'
+  )].map(input => input.value);
 
-  const station = {
-    rallyId: select.value,
+  if (selectedIds.length === 0) {
+    alert("追加先ラリーを1つ以上選択してください。");
+    return;
+  }
+
+  const stationBase = {
     name: button.dataset.name,
     prefecture: button.dataset.prefecture || "",
     lat: Number(button.dataset.lat),
@@ -945,8 +895,18 @@ function addStationFromSearchPopup(button) {
     osmId: button.dataset.osmId || `${Date.now()}`
   };
 
-  addStationToRally(station, button);
+  let added = 0;
+
+  selectedIds.forEach(rallyId => {
+    if (addStationToRally({ ...stationBase, rallyId }, null)) {
+      added++;
+    }
+  });
+
+  button.textContent = added > 0 ? `${added}件追加しました` : "すべて追加済み";
+  buildRegisteredStationList();
 }
+
 
 function showAreaSearchMarkers(results) {
   searchLayer.clearLayers();
@@ -1068,19 +1028,20 @@ function renderStationResults(results) {
     const card = document.createElement("div");
     card.className = "station-result-card";
 
-    const options = stampRallies.map(rally =>
-      `<option value="${rally.id}" ${rally.id === "station" ? "selected" : ""}>${escapeHtml(rally.name)}</option>`
-    ).join("");
 
     card.innerHTML = `
       <div class="station-result-name">${escapeHtml(name)}</div>
       <div class="station-result-address">${escapeHtml(addressText)}</div>
 
+      <div class="rally-multi-select station-card-rallies">
+        ${buildRallyCheckboxOptions(`card-${osmType}-${osmId}`)}
+      </div>
+
       <div class="station-result-actions">
-        <select class="rally-select" aria-label="追加先ラリー">
-          ${options}
-        </select>
-        <button type="button" class="add-station-button">＋ ラリーに追加</button>
+        <div></div>
+        <button type="button" class="add-station-button" ${stampRallies.length === 0 ? "disabled" : ""}>
+          ＋ 選択したラリーに追加
+        </button>
       </div>
 
       <div class="station-result-subactions">
@@ -1090,22 +1051,39 @@ function renderStationResults(results) {
 
     const showButton = card.querySelector(".show-station-button");
     const addButton = card.querySelector(".add-station-button");
-    const select = card.querySelector(".rally-select");
 
     showButton.addEventListener("click", () => {
       showSearchResultOnMap(result, name);
     });
 
     addButton.addEventListener("click", () => {
-      addStationToRally({
-        rallyId: select.value,
-        name,
-        prefecture,
-        lat,
-        lng,
-        osmType,
-        osmId
-      }, addButton);
+      const selectedIds = [...card.querySelectorAll(
+        '.station-card-rallies input[type="checkbox"]:checked'
+      )].map(input => input.value);
+
+      if (selectedIds.length === 0) {
+        alert("追加先ラリーを1つ以上選択してください。");
+        return;
+      }
+
+      let added = 0;
+
+      selectedIds.forEach(rallyId => {
+        if (addStationToRally({
+          rallyId,
+          name,
+          prefecture,
+          lat,
+          lng,
+          osmType,
+          osmId
+        }, null)) {
+          added++;
+        }
+      });
+
+      addButton.textContent = added > 0 ? `${added}件追加しました` : "すべて追加済み";
+      buildRegisteredStationList();
     });
 
     container.appendChild(card);
@@ -1130,15 +1108,22 @@ function showSearchResultOnMap(result, name) {
 
 function addStationToRally(station, button) {
   const rally = stampRallies.find(r => r.id === station.rallyId);
-  if (!rally) return;
+  if (!rally) return false;
 
   const id = makeCustomCheckpointId(station.rallyId, station.osmType, station.osmId);
+  const stationKey = makeStationKey(station.osmType, station.osmId);
 
   if (rally.checkpoints.some(cp => cp.id === id)) {
-    button.textContent = "追加済み";
-    button.disabled = true;
-    return;
+    if (button) {
+      button.textContent = "追加済み";
+      button.disabled = true;
+    }
+    return false;
   }
+
+  const sharedVisitedCheckpoint = stampRallies
+    .flatMap(r => r.checkpoints)
+    .find(cp => getCheckpointVisitKey(cp) === stationKey);
 
   const checkpoint = {
     id,
@@ -1146,10 +1131,11 @@ function addStationToRally(station, button) {
     prefecture: station.prefecture,
     lat: station.lat,
     lng: station.lng,
-    visited: false,
+    visited: sharedVisitedCheckpoint ? sharedVisitedCheckpoint.visited : false,
     custom: true,
     osmType: station.osmType,
-    osmId: station.osmId
+    osmId: station.osmId,
+    stationKey
   };
 
   rally.checkpoints.push(checkpoint);
@@ -1158,14 +1144,20 @@ function addStationToRally(station, button) {
   saveCustomCheckpoints();
   saveVisitedStates();
   buildProgress();
+  buildRallyManager();
+  buildRegisteredStationList();
 
-  button.textContent = "追加しました";
-  button.disabled = true;
+  if (button) {
+    button.textContent = "追加しました";
+    button.disabled = true;
+  }
 
   map.setView([checkpoint.lat, checkpoint.lng], 15);
 
   const marker = checkpointMarkers[checkpoint.id];
   if (marker) marker.openPopup();
+
+  return true;
 }
 
 document.addEventListener("click", event => {
@@ -1199,6 +1191,15 @@ document.addEventListener("click", event => {
     return;
   }
 
+  const registeredShowButton = event.target.closest(".registered-station-show");
+  if (registeredShowButton) {
+    showRegisteredStation(
+      registeredShowButton.dataset.rallyId,
+      registeredShowButton.dataset.checkpointId
+    );
+    return;
+  }
+
   const searchAddButton = event.target.closest(".search-popup-add-button");
   if (searchAddButton) {
     addStationFromSearchPopup(searchAddButton);
@@ -1214,7 +1215,6 @@ document.getElementById("newRallyName").addEventListener("keydown", event => {
   }
 });
 
-document.getElementById("restoreDefaultRalliesButton").addEventListener("click", restoreDefaultRallies);
 
 document.getElementById("stationSearchButton").addEventListener("click", searchStations);
 document.getElementById("areaStationSearchButton").addEventListener("click", searchStationsInCurrentArea);
@@ -1238,3 +1238,4 @@ buildLayers();
 buildRallyManager();
 buildFilters();
 buildProgress();
+buildRegisteredStationList();

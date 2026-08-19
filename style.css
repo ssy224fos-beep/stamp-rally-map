@@ -563,3 +563,110 @@ button, input, select { font: inherit; }
   opacity: .55;
   cursor: default;
 }
+
+
+.rally-multi-select {
+  display: grid;
+  gap: 6px;
+  max-height: 140px;
+  overflow-y: auto;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.rally-multi-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.rally-multi-option input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.no-rallies-note,
+.empty-station-list {
+  padding: 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.registered-station-list {
+  display: grid;
+  gap: 10px;
+}
+
+.registered-rally-group {
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.registered-rally-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 10px;
+  background: #f8fafc;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.registered-station-row {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 8px;
+  align-items: start;
+  padding: 8px 10px;
+  border-top: 1px solid #eef2f7;
+  font-size: 12px;
+}
+
+.registered-station-status {
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #94a3b8;
+}
+
+.registered-station-status.visited {
+  background: #16a34a;
+}
+
+.registered-station-status.unvisited {
+  background: #ef4444;
+}
+
+.registered-station-name {
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.registered-station-prefecture {
+  margin-top: 2px;
+  color: #64748b;
+}
+
+.registered-station-row button {
+  grid-column: 2;
+  justify-self: start;
+  border: 0;
+  padding: 2px 0;
+  background: transparent;
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
