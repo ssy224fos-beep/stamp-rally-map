@@ -27,6 +27,9 @@ const searchLayer = L.layerGroup().addTo(map);
 // リロードすると自然に空になり、「この範囲の駅を検索」実行時にもクリアする。
 const newlyCreatedEmptyRallyIds = new Set();
 
+// ラリーカードの展開状態を再描画後も維持する。
+const openRallyCardIds = new Set();
+
 const OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter";
 const MIN_AREA_SEARCH_ZOOM = 11;
 const MAX_AREA_SEARCH_RESULTS = 120;
@@ -104,6 +107,10 @@ function setStationEntryComplete(rallyId, completed) {
   }
 
   saveStationEntryCompleteStates(states);
+
+  // チェック操作中のカードを閉じない。
+  openRallyCardIds.add(rallyId);
+
   buildRallyDashboard();
 }
 
@@ -1113,6 +1120,9 @@ function buildRallyDashboard() {
 
     const card = document.createElement("div");
     card.className = "rally-dashboard-card";
+    if (openRallyCardIds.has(rally.id)) {
+      card.classList.add("open");
+    }
     card.dataset.rallyId = rally.id;
 
     const stationRows = rally.checkpoints.length === 0
@@ -1173,6 +1183,9 @@ function buildRallyDashboard() {
           <div class="rally-dashboard-name" title="${escapeHtml(rally.name)}">
             ${escapeHtml(rally.name)}
             ${isTransientNewEmptyRally(rally) ? '<span class="new-rally-note">（新規・0駅）</span>' : ""}
+          </div>
+
+          <div class="rally-dashboard-status">
             ${stationEntryComplete ? '<span class="station-entry-complete-badge">駅登録完了</span>' : ""}
           </div>
 
@@ -1225,7 +1238,7 @@ function buildRallyDashboard() {
             data-rally-id="${rally.id}"
             ${stationEntryComplete ? "checked" : ""}
           >
-          <span>このラリーの手動駅登録は完了</span>
+          <span>駅登録完了</span>
         </label>
 
         <div class="rally-dashboard-stations">
@@ -1251,6 +1264,12 @@ function buildRallyDashboard() {
     const toggle = card.querySelector(".rally-dashboard-toggle");
     toggle.addEventListener("click", () => {
       card.classList.toggle("open");
+
+      if (card.classList.contains("open")) {
+        openRallyCardIds.add(rally.id);
+      } else {
+        openRallyCardIds.delete(rally.id);
+      }
     });
 
     const stationEntryCheckbox = card.querySelector(".station-entry-complete-checkbox");
@@ -1512,6 +1531,7 @@ function deleteRally(button) {
 
   stampRallies.splice(rallyIndex, 1);
   newlyCreatedEmptyRallyIds.delete(rallyId);
+  openRallyCardIds.delete(rallyId);
   deleteStationEntryCompleteState(rallyId);
 
   saveRallySettings();
@@ -1552,6 +1572,9 @@ function moveRegisteredStation(rallyId, checkpointId, direction) {
 
   const [checkpoint] = rally.checkpoints.splice(currentIndex, 1);
   rally.checkpoints.splice(targetIndex, 0, checkpoint);
+
+  // 操作中のラリーは展開状態を維持する。
+  openRallyCardIds.add(rallyId);
 
   // checkpoints 配列の順序そのものを保存する。
   saveCustomCheckpoints();

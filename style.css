@@ -1228,3 +1228,33 @@ button, input, select { font: inherit; }
 .ignored-station-empty {
   line-height: 1.6;
 }
+
+
+/* Phase 8.16: ラリー展開状態維持 + 駅登録完了表示の安定化 */
+.rally-dashboard-top {
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+}
+
+.rally-dashboard-status {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.rally-dashboard-status .station-entry-complete-badge {
+  margin-left: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 980px) {
+  .rally-dashboard-top {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+
+  .rally-dashboard-status {
+    grid-column: 2 / 5;
+    justify-content: flex-start;
+    padding-left: 0;
+  }
+}
