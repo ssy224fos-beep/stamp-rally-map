@@ -980,3 +980,45 @@ button, input, select { font: inherit; }
 .registered-remove-button:active {
   transform: translateY(1px);
 }
+
+
+/* Phase 8.12: 登録駅一覧の手動並べ替え */
+.registered-station-row {
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+}
+
+.registered-station-main {
+  min-width: 0;
+}
+
+.registered-station-order {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.registered-station-order .registered-station-move {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0;
+  background: #fff;
+  color: #334155;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.registered-station-order .registered-station-move:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+.registered-station-order .registered-station-move:disabled {
+  opacity: .3;
+  cursor: default;
+}
+
+.registered-station-row .registered-station-show {
+  grid-column: 2 / 4;
+}

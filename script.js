@@ -1363,15 +1363,38 @@ function buildRegisteredStationList() {
     const group = document.createElement("div");
     group.className = "registered-rally-group";
 
-    const rows = [...rally.checkpoints]
-      .sort((a, b) => a.name.localeCompare(b.name, "ja"))
-      .map(checkpoint => `
+    const rows = rally.checkpoints
+      .map((checkpoint, index) => `
         <div class="registered-station-row">
           <span class="registered-station-status ${checkpoint.visited ? "visited" : "unvisited"}"></span>
-          <div>
+
+          <div class="registered-station-main">
             <div class="registered-station-name">${escapeHtml(checkpoint.name)}</div>
             <div class="registered-station-prefecture">${escapeHtml(checkpoint.prefecture || "")}</div>
           </div>
+
+          <div class="registered-station-order">
+            <button
+              type="button"
+              class="registered-station-move"
+              data-direction="up"
+              data-rally-id="${rally.id}"
+              data-checkpoint-id="${checkpoint.id}"
+              ${index === 0 ? "disabled" : ""}
+              title="1つ上へ"
+            >↑</button>
+
+            <button
+              type="button"
+              class="registered-station-move"
+              data-direction="down"
+              data-rally-id="${rally.id}"
+              data-checkpoint-id="${checkpoint.id}"
+              ${index === rally.checkpoints.length - 1 ? "disabled" : ""}
+              title="1つ下へ"
+            >↓</button>
+          </div>
+
           <button
             type="button"
             class="registered-station-show"
@@ -1401,6 +1424,30 @@ function buildRegisteredStationList() {
       </div>
     `;
   }
+}
+
+function moveRegisteredStation(rallyId, checkpointId, direction) {
+  const rally = stampRallies.find(item => item.id === rallyId);
+  if (!rally) return;
+
+  const currentIndex = rally.checkpoints.findIndex(
+    checkpoint => checkpoint.id === checkpointId
+  );
+  if (currentIndex < 0) return;
+
+  const targetIndex = direction === "up"
+    ? currentIndex - 1
+    : currentIndex + 1;
+
+  if (targetIndex < 0 || targetIndex >= rally.checkpoints.length) {
+    return;
+  }
+
+  const [checkpoint] = rally.checkpoints.splice(currentIndex, 1);
+  rally.checkpoints.splice(targetIndex, 0, checkpoint);
+
+  saveCustomCheckpoints();
+  buildRegisteredStationList();
 }
 
 function showRegisteredStation(rallyId, checkpointId) {
@@ -2306,6 +2353,16 @@ document.addEventListener("click", event => {
   const ignoredRestoreButton = event.target.closest(".ignored-station-restore");
   if (ignoredRestoreButton) {
     restoreIgnoredStation(ignoredRestoreButton.dataset.stationKey);
+    return;
+  }
+
+  const registeredMoveButton = event.target.closest(".registered-station-move");
+  if (registeredMoveButton) {
+    moveRegisteredStation(
+      registeredMoveButton.dataset.rallyId,
+      registeredMoveButton.dataset.checkpointId,
+      registeredMoveButton.dataset.direction
+    );
     return;
   }
 
