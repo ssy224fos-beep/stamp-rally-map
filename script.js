@@ -74,6 +74,115 @@ function makeStationKey(osmType, osmId) {
   return `${osmType || "unknown"}:${osmId || ""}`;
 }
 
+function buildKnownStationMetadataMap() {
+  const mapByKey = new Map();
+
+  const addCheckpointItems = raw => {
+    try {
+      const items = JSON.parse(raw || "[]");
+      if (!Array.isArray(items)) return;
+
+      items.forEach(item => {
+        const key =
+          item.stationKey ||
+          makeStationKey(item.osmType, item.osmId);
+
+        if (!key) return;
+
+        const current = mapByKey.get(key) || {};
+        mapByKey.set(key, {
+          name: item.name || current.name || "",
+          prefecture: item.prefecture || current.prefecture || "",
+          result: current.result || {
+            lat: String(item.lat ?? ""),
+            lon: String(item.lng ?? ""),
+            name: item.name || "",
+            display_name: item.name || "",
+            category: "railway",
+            type: "station",
+            osm_type: item.osmType || "unknown",
+            osm_id: String(item.osmId || ""),
+            namedetails: { name: item.name || "" },
+            address: item.prefecture ? { province: item.prefecture } : {}
+          }
+        });
+      });
+    } catch (error) {
+      console.warn("駅名復元用データの読み込みに失敗しました。", error);
+    }
+  };
+
+  addCheckpointItems(localStorage.getItem(CUSTOM_STORAGE_KEY));
+  addCheckpointItems(localStorage.getItem(LEGACY_CUSTOM_STORAGE_KEY));
+
+  try {
+    const searchResults = JSON.parse(
+      localStorage.getItem(SEARCH_RESULTS_STORAGE_KEY) || "[]"
+    );
+
+    if (Array.isArray(searchResults)) {
+      searchResults.forEach(result => {
+        const key = getSearchResultStationKey(result);
+        if (!key) return;
+
+        const current = mapByKey.get(key) || {};
+        mapByKey.set(key, {
+          name:
+            result.namedetails?.name ||
+            result.name ||
+            result.display_name?.split(",")[0] ||
+            current.name ||
+            "",
+          prefecture: getPrefecture(result) || current.prefecture || "",
+          result
+        });
+      });
+    }
+  } catch (error) {
+    console.warn("駅名復元用の検索データを読み込めませんでした。", error);
+  }
+
+  return mapByKey;
+}
+
+function enrichIgnoredStations(items) {
+  const known = buildKnownStationMetadataMap();
+  let changed = false;
+
+  const enriched = items.map(item => {
+    const meta = known.get(item.key);
+    if (!meta) return item;
+
+    const looksLikeCode =
+      !item.name ||
+      item.name === item.key ||
+      /^[a-z]+:\d+$/i.test(item.name);
+
+    const next = {
+      ...item,
+      name: looksLikeCode && meta.name ? meta.name : item.name,
+      prefecture: item.prefecture || meta.prefecture || "",
+      result: item.result || meta.result || null
+    };
+
+    if (
+      next.name !== item.name ||
+      next.prefecture !== item.prefecture ||
+      next.result !== item.result
+    ) {
+      changed = true;
+    }
+
+    return next;
+  });
+
+  if (changed) {
+    saveIgnoredStations(enriched);
+  }
+
+  return enriched;
+}
+
 function loadIgnoredStations() {
   try {
     const saved = JSON.parse(
@@ -532,6 +641,15 @@ function createPopup(rally, checkpoint) {
 
       <button
         type="button"
+        class="registered-remove-button"
+        data-rally-id="${rally.id}"
+        data-checkpoint-id="${checkpoint.id}"
+      >
+        このラリーから削除
+      </button>
+
+      <button
+        type="button"
         class="registered-ignore-button"
         data-rally-id="${rally.id}"
         data-checkpoint-id="${checkpoint.id}"
@@ -640,6 +758,60 @@ function createIgnoredPreviewMarker(checkpoint) {
   `).openPopup();
 
   return marker;
+}
+
+function removeStationFromCurrentRally(button) {
+  const rallyId = button.dataset.rallyId;
+  const checkpointId = button.dataset.checkpointId;
+  const result = findCheckpoint(rallyId, checkpointId);
+  if (!result) return;
+
+  const { rally, checkpoint } = result;
+  const stationKey = getCheckpointVisitKey(checkpoint);
+
+  const ok = confirm(
+    `「${checkpoint.name}」を「${rally.name}」から削除しますか？\n` +
+    `他のラリーに登録されている場合は、そちらには残ります。`
+  );
+  if (!ok) return;
+
+  const index = rally.checkpoints.findIndex(cp => cp.id === checkpointId);
+  if (index >= 0) {
+    rally.checkpoints.splice(index, 1);
+  }
+
+  removeCheckpointMarker(checkpointId, rallyId);
+
+  const stillRegisteredElsewhere = stampRallies.some(otherRally =>
+    otherRally.checkpoints.some(cp =>
+      getCheckpointVisitKey(cp) === stationKey
+    )
+  );
+
+  if (!stillRegisteredElsewhere) {
+    try {
+      const savedVisited = JSON.parse(
+        localStorage.getItem(VISITED_STORAGE_KEY) || "{}"
+      );
+      delete savedVisited[stationKey];
+      localStorage.setItem(
+        VISITED_STORAGE_KEY,
+        JSON.stringify(savedVisited)
+      );
+    } catch (error) {
+      console.warn("訪問済みデータの整理に失敗しました。", error);
+    }
+  }
+
+  saveCustomCheckpoints();
+  saveVisitedStates();
+
+  buildRallyManager();
+  buildFilters();
+  buildProgress();
+  buildRegisteredStationList();
+
+  map.closePopup();
 }
 
 function changeRegisteredStationToIgnored(button) {
@@ -1253,7 +1425,7 @@ function buildIgnoredStationList() {
   const container = document.getElementById("ignoredStationList");
   if (!container) return;
 
-  const items = loadIgnoredStations().sort((a, b) =>
+  const items = enrichIgnoredStations(loadIgnoredStations()).sort((a, b) =>
     japaneseRallyCollator.compare(a.name || "", b.name || "")
   );
 
@@ -2098,6 +2270,12 @@ document.addEventListener("click", event => {
   const checkpointDeleteButton = event.target.closest(".custom-edit-delete");
   if (checkpointDeleteButton) {
     deleteCustomCheckpoint(checkpointDeleteButton);
+    return;
+  }
+
+  const registeredRemoveButton = event.target.closest(".registered-remove-button");
+  if (registeredRemoveButton) {
+    removeStationFromCurrentRally(registeredRemoveButton);
     return;
   }
 

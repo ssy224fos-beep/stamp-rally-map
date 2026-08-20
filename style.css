@@ -962,3 +962,21 @@ button, input, select { font: inherit; }
   border-color: #ffffff;
   box-shadow: 0 1px 6px rgba(0, 0, 0, .45);
 }
+
+
+/* Phase 8.11 */
+.registered-remove-button {
+  width: 100%;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: #dc2626;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.registered-remove-button:active {
+  transform: translateY(1px);
+}
