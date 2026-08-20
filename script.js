@@ -1,6 +1,7 @@
 const VISITED_STORAGE_KEY = "stampRallyMapVisitedShared_v2";
 const CUSTOM_STORAGE_KEY = "stampRallyMapCustomCheckpoints_v2";
 const RALLY_STORAGE_KEY = "stampRallyMapRallies_v2";
+const RALLY_STATION_ENTRY_COMPLETE_STORAGE_KEY = "stampRallyMapStationEntryComplete_v1";
 const SEARCH_RESULTS_STORAGE_KEY = "stampRallyMapSearchResults_v1";
 const IGNORED_STATIONS_STORAGE_KEY = "stampRallyMapIgnoredStations_v1";
 
@@ -63,6 +64,55 @@ function saveRallySettings() {
     RALLY_STORAGE_KEY,
     JSON.stringify({ customRallies })
   );
+}
+
+function loadStationEntryCompleteStates() {
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem(RALLY_STATION_ENTRY_COMPLETE_STORAGE_KEY) || "{}"
+    );
+    return saved && typeof saved === "object" ? saved : {};
+  } catch (error) {
+    console.warn("駅登録完了状態を読み込めませんでした。", error);
+    return {};
+  }
+}
+
+function saveStationEntryCompleteStates(states) {
+  try {
+    localStorage.setItem(
+      RALLY_STATION_ENTRY_COMPLETE_STORAGE_KEY,
+      JSON.stringify(states)
+    );
+  } catch (error) {
+    console.warn("駅登録完了状態を保存できませんでした。", error);
+  }
+}
+
+function isStationEntryComplete(rallyId) {
+  const states = loadStationEntryCompleteStates();
+  return Boolean(states[rallyId]);
+}
+
+function setStationEntryComplete(rallyId, completed) {
+  const states = loadStationEntryCompleteStates();
+
+  if (completed) {
+    states[rallyId] = true;
+  } else {
+    delete states[rallyId];
+  }
+
+  saveStationEntryCompleteStates(states);
+  buildRallyDashboard();
+}
+
+function deleteStationEntryCompleteState(rallyId) {
+  const states = loadStationEntryCompleteStates();
+  if (Object.prototype.hasOwnProperty.call(states, rallyId)) {
+    delete states[rallyId];
+    saveStationEntryCompleteStates(states);
+  }
 }
 
 function makeNewRallyId() {
@@ -988,6 +1038,49 @@ function buildLayers() {
 }
 
 
+function updateVisibleRalliesMasterCheckbox() {
+  const master = document.getElementById("visibleRalliesMasterCheckbox");
+  if (!master) return;
+
+  const rallies = getViewportFilteredRallies();
+
+  if (rallies.length === 0) {
+    master.checked = false;
+    master.indeterminate = false;
+    master.disabled = true;
+    return;
+  }
+
+  master.disabled = false;
+
+  const selectedCount = rallies.filter(rally =>
+    rallyLayers[rally.id] && map.hasLayer(rallyLayers[rally.id])
+  ).length;
+
+  master.checked = selectedCount === rallies.length;
+  master.indeterminate =
+    selectedCount > 0 && selectedCount < rallies.length;
+}
+
+function setAllVisibleRalliesMapVisibility(visible) {
+  const rallies = getViewportFilteredRallies();
+
+  rallies.forEach(rally => {
+    const layer = rallyLayers[rally.id];
+    if (!layer) return;
+
+    if (visible) {
+      if (!map.hasLayer(layer)) {
+        layer.addTo(map);
+      }
+    } else if (map.hasLayer(layer)) {
+      map.removeLayer(layer);
+    }
+  });
+
+  buildRallyDashboard();
+}
+
 function buildRallyDashboard() {
   const container = document.getElementById("rallyDashboardList");
   if (!container) return;
@@ -1016,6 +1109,7 @@ function buildRallyDashboard() {
     const total = rally.checkpoints.length;
     const visited = rally.checkpoints.filter(cp => cp.visited).length;
     const percent = total === 0 ? 0 : Math.round((visited / total) * 100);
+    const stationEntryComplete = isStationEntryComplete(rally.id);
 
     const card = document.createElement("div");
     card.className = "rally-dashboard-card";
@@ -1079,6 +1173,7 @@ function buildRallyDashboard() {
           <div class="rally-dashboard-name" title="${escapeHtml(rally.name)}">
             ${escapeHtml(rally.name)}
             ${isTransientNewEmptyRally(rally) ? '<span class="new-rally-note">（新規・0駅）</span>' : ""}
+            ${stationEntryComplete ? '<span class="station-entry-complete-badge">駅登録完了</span>' : ""}
           </div>
 
           <div class="rally-dashboard-count">${visited} / ${total}</div>
@@ -1123,6 +1218,16 @@ function buildRallyDashboard() {
           </button>
         </div>
 
+        <label class="station-entry-complete-control">
+          <input
+            type="checkbox"
+            class="station-entry-complete-checkbox"
+            data-rally-id="${rally.id}"
+            ${stationEntryComplete ? "checked" : ""}
+          >
+          <span>このラリーの手動駅登録は完了</span>
+        </label>
+
         <div class="rally-dashboard-stations">
           ${stationRows}
         </div>
@@ -1139,11 +1244,18 @@ function buildRallyDashboard() {
       } else {
         map.removeLayer(layer);
       }
+
+      updateVisibleRalliesMasterCheckbox();
     });
 
     const toggle = card.querySelector(".rally-dashboard-toggle");
     toggle.addEventListener("click", () => {
       card.classList.toggle("open");
+    });
+
+    const stationEntryCheckbox = card.querySelector(".station-entry-complete-checkbox");
+    stationEntryCheckbox.addEventListener("change", () => {
+      setStationEntryComplete(rally.id, stationEntryCheckbox.checked);
     });
 
     container.appendChild(card);
@@ -1183,6 +1295,8 @@ function buildRallyDashboard() {
 
     overallProgressBar.style.width = `${percent}%`;
   }
+
+  updateVisibleRalliesMasterCheckbox();
 }
 
 function buildFilters() {
@@ -1398,6 +1512,7 @@ function deleteRally(button) {
 
   stampRallies.splice(rallyIndex, 1);
   newlyCreatedEmptyRallyIds.delete(rallyId);
+  deleteStationEntryCompleteState(rallyId);
 
   saveRallySettings();
   saveCustomCheckpoints();
@@ -2345,6 +2460,10 @@ document.getElementById("showAllRalliesCheckbox").addEventListener("change", () 
   buildFilters();
   buildProgress();
   buildRegisteredStationList();
+});
+
+document.getElementById("visibleRalliesMasterCheckbox").addEventListener("change", event => {
+  setAllVisibleRalliesMapVisibility(event.target.checked);
 });
 
 document.getElementById("newRallyName").addEventListener("keydown", event => {
