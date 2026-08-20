@@ -1217,3 +1217,14 @@ button, input, select { font: inherit; }
   height: 18px;
   margin: 0;
 }
+
+
+/* Phase 8.15 */
+.registered-station-order .registered-station-move:not(:disabled) {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.ignored-station-empty {
+  line-height: 1.6;
+}

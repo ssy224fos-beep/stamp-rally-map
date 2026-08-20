@@ -1532,6 +1532,34 @@ function buildRegisteredStationList() {
   buildRallyDashboard();
 }
 
+function moveRegisteredStation(rallyId, checkpointId, direction) {
+  const rally = stampRallies.find(item => item.id === rallyId);
+  if (!rally) return;
+
+  const currentIndex = rally.checkpoints.findIndex(
+    checkpoint => checkpoint.id === checkpointId
+  );
+  if (currentIndex < 0) return;
+
+  const targetIndex =
+    direction === "up"
+      ? currentIndex - 1
+      : currentIndex + 1;
+
+  if (targetIndex < 0 || targetIndex >= rally.checkpoints.length) {
+    return;
+  }
+
+  const [checkpoint] = rally.checkpoints.splice(currentIndex, 1);
+  rally.checkpoints.splice(targetIndex, 0, checkpoint);
+
+  // checkpoints 配列の順序そのものを保存する。
+  saveCustomCheckpoints();
+
+  // 統合ラリーカードを再描画。
+  buildRallyDashboard();
+}
+
 function showRegisteredStation(rallyId, checkpointId) {
   const result = findCheckpoint(rallyId, checkpointId);
   if (!result) return;
@@ -1550,36 +1578,186 @@ function showRegisteredStation(rallyId, checkpointId) {
   if (marker) marker.openPopup();
 }
 
-function buildIgnoredStationList() {
+let ignoredStationNameResolveInProgress = false;
+
+function isIgnoredStationNameCode(item) {
+  const name = String(item?.name || "");
+  return !name ||
+    name === item.key ||
+    /^(node|way|relation):\d+$/i.test(name);
+}
+
+function ignoredStationHasCoordinates(item) {
+  const lat = Number(item?.result?.lat);
+  const lng = Number(item?.result?.lon);
+  return Number.isFinite(lat) && Number.isFinite(lng);
+}
+
+function ignoredStationIsInCurrentMap(item) {
+  if (!ignoredStationHasCoordinates(item)) return false;
+
+  return map.getBounds().contains([
+    Number(item.result.lat),
+    Number(item.result.lon)
+  ]);
+}
+
+function osmKeyToNominatimId(key) {
+  const match = String(key || "").match(/^(node|way|relation):(\d+)$/i);
+  if (!match) return null;
+
+  const prefix = {
+    node: "N",
+    way: "W",
+    relation: "R"
+  }[match[1].toLowerCase()];
+
+  return `${prefix}${match[2]}`;
+}
+
+async function resolveLegacyIgnoredStationNames() {
+  if (ignoredStationNameResolveInProgress) return;
+
+  const items = loadIgnoredStations();
+  const unresolved = items.filter(item =>
+    isIgnoredStationNameCode(item) ||
+    !ignoredStationHasCoordinates(item)
+  );
+
+  const lookupTargets = unresolved
+    .map(item => ({
+      item,
+      osmLookupId: osmKeyToNominatimId(item.key)
+    }))
+    .filter(entry => entry.osmLookupId)
+    .slice(0, 40);
+
+  if (lookupTargets.length === 0) return;
+
+  ignoredStationNameResolveInProgress = true;
+
+  try {
+    const params = new URLSearchParams({
+      osm_ids: lookupTargets.map(entry => entry.osmLookupId).join(","),
+      format: "jsonv2",
+      addressdetails: "1",
+      namedetails: "1",
+      "accept-language": "ja"
+    });
+
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/lookup?${params.toString()}`,
+      { headers: { "Accept": "application/json" } }
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const results = await response.json();
+    const byKey = new Map();
+
+    results.forEach(result => {
+      const key = makeStationKey(
+        result.osm_type || "unknown",
+        String(result.osm_id || "")
+      );
+      byKey.set(key, result);
+    });
+
+    let changed = false;
+
+    const updated = items.map(item => {
+      const result = byKey.get(item.key);
+      if (!result) return item;
+
+      const stationName =
+        result.namedetails?.name ||
+        result.name ||
+        result.display_name?.split(",")[0] ||
+        item.name;
+
+      const next = {
+        ...item,
+        name: stationName,
+        prefecture: getPrefecture(result) || item.prefecture || "",
+        result: sanitizeSearchResultForStorage(result)
+      };
+
+      if (
+        next.name !== item.name ||
+        next.prefecture !== item.prefecture ||
+        !item.result
+      ) {
+        changed = true;
+      }
+
+      return next;
+    });
+
+    if (changed) {
+      saveIgnoredStations(updated);
+    }
+  } catch (error) {
+    console.warn("登録不要駅の駅名取得に失敗しました。", error);
+  } finally {
+    ignoredStationNameResolveInProgress = false;
+    buildIgnoredStationList(false);
+  }
+}
+
+function buildIgnoredStationList(resolveNames = true) {
   const container = document.getElementById("ignoredStationList");
   if (!container) return;
 
-  const items = enrichIgnoredStations(loadIgnoredStations()).sort((a, b) =>
-    japaneseRallyCollator.compare(a.name || "", b.name || "")
-  );
+  const allItems = enrichIgnoredStations(loadIgnoredStations());
+
+  const items = allItems
+    .filter(item => ignoredStationIsInCurrentMap(item))
+    .sort((a, b) =>
+      japaneseRallyCollator.compare(a.name || "", b.name || "")
+    );
 
   if (items.length === 0) {
+    const unresolvedCount = allItems.filter(
+      item => !ignoredStationHasCoordinates(item)
+    ).length;
+
     container.innerHTML = `
       <div class="ignored-station-empty">
-        登録不要に設定した駅はありません。
+        ${
+          unresolvedCount > 0
+            ? "現在の地図範囲に表示できる登録不要駅はありません。旧データの駅名・位置情報を確認中です。"
+            : "現在の地図範囲に登録不要駅はありません。"
+        }
       </div>
     `;
-    return;
+  } else {
+    container.innerHTML = items.map(item => `
+      <div class="ignored-station-card">
+        <div class="ignored-station-name">${escapeHtml(item.name || "駅")}</div>
+        <div class="ignored-station-meta">${escapeHtml(item.prefecture || "")}</div>
+        <button
+          type="button"
+          class="ignored-station-restore"
+          data-station-key="${escapeHtml(item.key)}"
+        >
+          登録候補に戻す
+        </button>
+      </div>
+    `).join("");
   }
 
-  container.innerHTML = items.map(item => `
-    <div class="ignored-station-card">
-      <div class="ignored-station-name">${escapeHtml(item.name || item.key)}</div>
-      <div class="ignored-station-meta">${escapeHtml(item.prefecture || "")}</div>
-      <button
-        type="button"
-        class="ignored-station-restore"
-        data-station-key="${escapeHtml(item.key)}"
-      >
-        登録候補に戻す
-      </button>
-    </div>
-  `).join("");
+  if (resolveNames) {
+    const needsResolve = allItems.some(item =>
+      isIgnoredStationNameCode(item) ||
+      !ignoredStationHasCoordinates(item)
+    );
+
+    if (needsResolve) {
+      resolveLegacyIgnoredStationNames();
+    }
+  }
 }
 
 function restoreIgnoredStation(stationKey) {
@@ -2478,6 +2656,7 @@ map.on("moveend zoomend", () => {
   buildFilters();
   buildProgress();
   buildRegisteredStationList();
+  buildIgnoredStationList();
 });
 
 document.getElementById("stationSearchButton").addEventListener("click", searchStations);
