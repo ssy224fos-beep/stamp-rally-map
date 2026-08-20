@@ -10,7 +10,10 @@
 <body>
   <header class="app-header">
     <div>
-      <h1>スタンプラリーマップ</h1>
+      <div class="title-row">
+        <h1>スタンプラリーマップ</h1>
+        <span class="app-version">v8.13</span>
+      </div>
       <p>日本全国のチェックポイントを地図で確認</p>
     </div>
     <div class="overall-progress">
@@ -43,7 +46,7 @@
 
     <aside class="sidebar">
       <section class="sidebar-section">
-        <h2>ラリー管理</h2>
+        <h2>ラリー</h2>
 
         <div class="rally-create-box">
           <input
@@ -80,23 +83,7 @@
         </label>
 
         <div id="rallyFilterSummary" class="rally-filter-summary"></div>
-
-        <div id="rallyManagerList" class="rally-manager-list"></div>
-      </section>
-
-      <section class="sidebar-section">
-        <h2>表示するラリー</h2>
-        <div id="rallyFilters" class="rally-filters"></div>
-      </section>
-
-      <section class="sidebar-section">
-        <h2>進捗状況</h2>
-        <div id="rallyProgress" class="rally-progress-list"></div>
-      </section>
-
-      <section class="sidebar-section">
-        <h2>登録駅一覧</h2>
-        <div id="registeredStationList" class="registered-station-list"></div>
+        <div id="rallyDashboardList" class="rally-dashboard-list"></div>
       </section>
 
       <section class="sidebar-section">

@@ -987,51 +987,207 @@ function buildLayers() {
   });
 }
 
-function buildFilters() {
-  const container = document.getElementById("rallyFilters");
+
+function buildRallyDashboard() {
+  const container = document.getElementById("rallyDashboardList");
+  if (!container) return;
+
+  const rallies = getViewportFilteredRallies();
+  const rawFilter = getRallyListFilterValue();
+  const achievement = getRallyAchievementFilterValue();
+
   container.innerHTML = "";
 
-  const filteredRallies = getViewportFilteredRallies();
-
-  if (filteredRallies.length === 0) {
-    container.innerHTML = `<div class="filtered-section-empty">表示条件に一致するラリーはありません。</div>`;
-    return;
+  if (stampRallies.length === 0) {
+    container.innerHTML = `
+      <div class="rally-dashboard-empty">
+        まだラリーがありません。「新しいラリー名」を入力して作成してください。
+      </div>
+    `;
+  } else if (rallies.length === 0) {
+    container.innerHTML = `
+      <div class="rally-dashboard-empty">
+        表示条件に一致するラリーはありません。
+      </div>
+    `;
   }
 
-  filteredRallies.forEach(rally => {
-    const label = document.createElement("label");
-    label.className = "rally-filter";
+  rallies.forEach(rally => {
+    const total = rally.checkpoints.length;
+    const visited = rally.checkpoints.filter(cp => cp.visited).length;
+    const percent = total === 0 ? 0 : Math.round((visited / total) * 100);
 
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = Boolean(rallyLayers[rally.id] && map.hasLayer(rallyLayers[rally.id]));
-    input.dataset.rallyId = rally.id;
+    const card = document.createElement("div");
+    card.className = "rally-dashboard-card";
+    card.dataset.rallyId = rally.id;
 
-    input.addEventListener("change", () => {
+    const stationRows = rally.checkpoints.length === 0
+      ? `<div class="rally-dashboard-empty">登録駅はまだありません。</div>`
+      : rally.checkpoints.map((checkpoint, index) => `
+          <div class="registered-station-row">
+            <span class="registered-station-status ${checkpoint.visited ? "visited" : "unvisited"}"></span>
+
+            <div class="registered-station-main">
+              <div class="registered-station-name">${escapeHtml(checkpoint.name)}</div>
+              <div class="registered-station-prefecture">${escapeHtml(checkpoint.prefecture || "")}</div>
+            </div>
+
+            <div class="registered-station-order">
+              <button
+                type="button"
+                class="registered-station-move"
+                data-direction="up"
+                data-rally-id="${rally.id}"
+                data-checkpoint-id="${checkpoint.id}"
+                ${index === 0 ? "disabled" : ""}
+                title="1つ上へ"
+              >↑</button>
+
+              <button
+                type="button"
+                class="registered-station-move"
+                data-direction="down"
+                data-rally-id="${rally.id}"
+                data-checkpoint-id="${checkpoint.id}"
+                ${index === rally.checkpoints.length - 1 ? "disabled" : ""}
+                title="1つ下へ"
+              >↓</button>
+            </div>
+
+            <button
+              type="button"
+              class="registered-station-show"
+              data-rally-id="${rally.id}"
+              data-checkpoint-id="${checkpoint.id}"
+            >
+              地図で表示
+            </button>
+          </div>
+        `).join("");
+
+    card.innerHTML = `
+      <div class="rally-dashboard-header">
+        <div class="rally-dashboard-top">
+          <input
+            type="checkbox"
+            class="rally-dashboard-visible"
+            data-rally-id="${rally.id}"
+            ${rallyLayers[rally.id] && map.hasLayer(rallyLayers[rally.id]) ? "checked" : ""}
+            aria-label="${escapeHtml(rally.name)}を地図に表示"
+          >
+
+          <div class="rally-dashboard-name" title="${escapeHtml(rally.name)}">
+            ${escapeHtml(rally.name)}
+            ${isTransientNewEmptyRally(rally) ? '<span class="new-rally-note">（新規・0駅）</span>' : ""}
+          </div>
+
+          <div class="rally-dashboard-count">${visited} / ${total}</div>
+
+          <button
+            type="button"
+            class="rally-dashboard-toggle"
+            aria-label="${escapeHtml(rally.name)}の詳細を開閉"
+          >⌄</button>
+        </div>
+
+        <div class="rally-dashboard-progress">
+          <div class="progress-track">
+            <div class="progress-bar" style="width:${percent}%"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rally-dashboard-body">
+        <div class="rally-dashboard-management">
+          <input
+            type="text"
+            class="rally-manager-name"
+            value="${escapeHtml(rally.name)}"
+            maxlength="60"
+          >
+
+          <button
+            type="button"
+            class="rally-manager-save"
+            data-rally-id="${rally.id}"
+          >
+            名称保存
+          </button>
+
+          <button
+            type="button"
+            class="rally-manager-delete"
+            data-rally-id="${rally.id}"
+          >
+            削除
+          </button>
+        </div>
+
+        <div class="rally-dashboard-stations">
+          ${stationRows}
+        </div>
+      </div>
+    `;
+
+    const visibleCheckbox = card.querySelector(".rally-dashboard-visible");
+    visibleCheckbox.addEventListener("change", () => {
       const layer = rallyLayers[rally.id];
-      if (input.checked) {
+      if (!layer) return;
+
+      if (visibleCheckbox.checked) {
         layer.addTo(map);
       } else {
         map.removeLayer(layer);
       }
     });
 
-    const text = document.createElement("span");
-    text.textContent = rally.name;
+    const toggle = card.querySelector(".rally-dashboard-toggle");
+    toggle.addEventListener("click", () => {
+      card.classList.toggle("open");
+    });
 
-    label.appendChild(input);
-    label.appendChild(text);
-
-    if (isTransientNewEmptyRally(rally)) {
-      const note = document.createElement("span");
-      note.className = "new-rally-note";
-      note.textContent = "（新規・0駅）";
-      label.appendChild(note);
-    }
-    container.appendChild(label);
+    container.appendChild(card);
   });
+
+  const summary = document.getElementById("rallyFilterSummary");
+  if (summary) {
+    const hasFilter =
+      Boolean(rawFilter) ||
+      achievement !== "all" ||
+      !shouldShowAllRallies();
+
+    summary.textContent = hasFilter
+      ? `${rallies.length} / ${stampRallies.length} 件を表示`
+      : `${stampRallies.length} 件のラリー`;
+  }
+
+  let overallVisited = 0;
+  let overallTotal = 0;
+
+  rallies.forEach(rally => {
+    overallVisited += rally.checkpoints.filter(cp => cp.visited).length;
+    overallTotal += rally.checkpoints.length;
+  });
+
+  const overallCount = document.getElementById("overallCount");
+  if (overallCount) {
+    overallCount.textContent = `${overallVisited} / ${overallTotal}`;
+  }
+
+  const overallProgressBar = document.getElementById("overallProgressBar");
+  if (overallProgressBar) {
+    const percent =
+      overallTotal === 0
+        ? 0
+        : Math.round((overallVisited / overallTotal) * 100);
+
+    overallProgressBar.style.width = `${percent}%`;
+  }
 }
 
+function buildFilters() {
+  buildRallyDashboard();
+}
 
 function refreshSearchRallySelects() {
   // 検索候補内のラリー選択欄は検索結果を再表示した際に最新化されます。
@@ -1147,82 +1303,7 @@ function applyRallyFiltersEverywhere() {
 }
 
 function buildRallyManager() {
-  const container = document.getElementById("rallyManagerList");
-  if (!container) return;
-
-  const rawFilter = getRallyListFilterValue();
-  const achievement = getRallyAchievementFilterValue();
-  const filteredRallies = getFilteredRallies();
-
-  container.innerHTML = "";
-
-  filteredRallies.forEach(rally => {
-    const card = document.createElement("div");
-    card.className = "rally-manager-card";
-
-    const count = rally.checkpoints.length;
-
-    card.innerHTML = `
-      <div class="rally-manager-meta">
-        <span class="rally-type-badge custom">ラリー</span>
-        <span>${count}地点</span>
-      </div>
-
-      <input
-        type="text"
-        class="rally-manager-name"
-        value="${escapeHtml(rally.name)}"
-        maxlength="60"
-      >
-
-      <div class="rally-manager-actions">
-        <button
-          type="button"
-          class="rally-manager-save"
-          data-rally-id="${rally.id}"
-        >
-          名称を保存
-        </button>
-
-        <button
-          type="button"
-          class="rally-manager-delete"
-          data-rally-id="${rally.id}"
-        >
-          削除
-        </button>
-      </div>
-    `;
-
-    container.appendChild(card);
-  });
-
-  if (stampRallies.length === 0) {
-    container.innerHTML = `
-      <div class="rally-manager-empty-filter">
-        まだラリーがありません。「新しいラリー名」を入力して作成してください。
-      </div>
-    `;
-  } else if (filteredRallies.length === 0) {
-    container.innerHTML = `
-      <div class="rally-manager-empty-filter">
-        「${escapeHtml(rawFilter)}」に一致するラリーはありません。
-      </div>
-    `;
-  }
-
-  const summary = document.getElementById("rallyFilterSummary");
-  if (summary) {
-    const hasFilter = Boolean(rawFilter) || achievement !== "all";
-    summary.textContent = hasFilter
-      ? `${filteredRallies.length} / ${stampRallies.length} 件を表示`
-      : `${stampRallies.length} 件のラリー`;
-  }
-
-  const clearButton = document.getElementById("clearRallyListFilter");
-  if (clearButton) {
-    clearButton.disabled = !rawFilter;
-  }
+  buildRallyDashboard();
 }
 
 function createRally() {
@@ -1333,121 +1414,7 @@ function deleteRally(button) {
 }
 
 function buildRegisteredStationList() {
-  const container = document.getElementById("registeredStationList");
-  if (!container) return;
-
-  container.innerHTML = "";
-
-  if (stampRallies.length === 0) {
-    container.innerHTML = `
-      <div class="empty-station-list">
-        ラリーがまだありません。先にラリーを作成してください。
-      </div>
-    `;
-    return;
-  }
-
-  const filteredRallies = getViewportFilteredRallies();
-
-  if (filteredRallies.length === 0) {
-    container.innerHTML = `<div class="filtered-section-empty">表示条件に一致するラリーはありません。</div>`;
-    return;
-  }
-
-  let anyStation = false;
-
-  filteredRallies.forEach(rally => {
-    if (rally.checkpoints.length === 0) return;
-    anyStation = true;
-
-    const group = document.createElement("div");
-    group.className = "registered-rally-group";
-
-    const rows = rally.checkpoints
-      .map((checkpoint, index) => `
-        <div class="registered-station-row">
-          <span class="registered-station-status ${checkpoint.visited ? "visited" : "unvisited"}"></span>
-
-          <div class="registered-station-main">
-            <div class="registered-station-name">${escapeHtml(checkpoint.name)}</div>
-            <div class="registered-station-prefecture">${escapeHtml(checkpoint.prefecture || "")}</div>
-          </div>
-
-          <div class="registered-station-order">
-            <button
-              type="button"
-              class="registered-station-move"
-              data-direction="up"
-              data-rally-id="${rally.id}"
-              data-checkpoint-id="${checkpoint.id}"
-              ${index === 0 ? "disabled" : ""}
-              title="1つ上へ"
-            >↑</button>
-
-            <button
-              type="button"
-              class="registered-station-move"
-              data-direction="down"
-              data-rally-id="${rally.id}"
-              data-checkpoint-id="${checkpoint.id}"
-              ${index === rally.checkpoints.length - 1 ? "disabled" : ""}
-              title="1つ下へ"
-            >↓</button>
-          </div>
-
-          <button
-            type="button"
-            class="registered-station-show"
-            data-rally-id="${rally.id}"
-            data-checkpoint-id="${checkpoint.id}"
-          >
-            地図で表示
-          </button>
-        </div>
-      `).join("");
-
-    group.innerHTML = `
-      <div class="registered-rally-header">
-        <span>${escapeHtml(rally.name)}</span>
-        <span>${rally.checkpoints.length}駅</span>
-      </div>
-      ${rows}
-    `;
-
-    container.appendChild(group);
-  });
-
-  if (!anyStation) {
-    container.innerHTML = `
-      <div class="empty-station-list">
-        まだ駅が登録されていません。駅検索から追加してください。
-      </div>
-    `;
-  }
-}
-
-function moveRegisteredStation(rallyId, checkpointId, direction) {
-  const rally = stampRallies.find(item => item.id === rallyId);
-  if (!rally) return;
-
-  const currentIndex = rally.checkpoints.findIndex(
-    checkpoint => checkpoint.id === checkpointId
-  );
-  if (currentIndex < 0) return;
-
-  const targetIndex = direction === "up"
-    ? currentIndex - 1
-    : currentIndex + 1;
-
-  if (targetIndex < 0 || targetIndex >= rally.checkpoints.length) {
-    return;
-  }
-
-  const [checkpoint] = rally.checkpoints.splice(currentIndex, 1);
-  rally.checkpoints.splice(targetIndex, 0, checkpoint);
-
-  saveCustomCheckpoints();
-  buildRegisteredStationList();
+  buildRallyDashboard();
 }
 
 function showRegisteredStation(rallyId, checkpointId) {
@@ -1527,46 +1494,7 @@ function restoreIgnoredStation(stationKey) {
 }
 
 function buildProgress() {
-  const container = document.getElementById("rallyProgress");
-  container.innerHTML = "";
-
-  const filteredRallies = getViewportFilteredRallies();
-
-  let overallVisited = 0;
-  let overallTotal = 0;
-
-  filteredRallies.forEach(rally => {
-    const total = rally.checkpoints.length;
-    const visited = rally.checkpoints.filter(cp => cp.visited).length;
-    const percent = total === 0 ? 0 : Math.round((visited / total) * 100);
-
-    overallVisited += visited;
-    overallTotal += total;
-
-    const card = document.createElement("div");
-    card.className = "rally-progress-card";
-    card.innerHTML = `
-      <div class="top-row">
-        <span class="name">${escapeHtml(rally.name)}</span>
-        <span class="count">${visited} / ${total}</span>
-      </div>
-      <div class="progress-track">
-        <div class="progress-bar" style="width:${percent}%"></div>
-      </div>
-    `;
-    container.appendChild(card);
-  });
-
-  if (filteredRallies.length === 0) {
-    container.innerHTML = `<div class="filtered-section-empty">表示条件に一致するラリーはありません。</div>`;
-  }
-
-  document.getElementById("overallCount").textContent = `${overallVisited} / ${overallTotal}`;
-
-  const overallPercent =
-    overallTotal === 0 ? 0 : Math.round((overallVisited / overallTotal) * 100);
-
-  document.getElementById("overallProgressBar").style.width = `${overallPercent}%`;
+  buildRallyDashboard();
 }
 
 function getOverpassElementLatLng(element) {
