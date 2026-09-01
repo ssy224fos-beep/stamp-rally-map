@@ -2,6 +2,7 @@ const VISITED_STORAGE_KEY = "stampRallyMapVisitedShared_v2";
 const CUSTOM_STORAGE_KEY = "stampRallyMapCustomCheckpoints_v2";
 const RALLY_STORAGE_KEY = "stampRallyMapRallies_v2";
 const RALLY_STATION_ENTRY_COMPLETE_STORAGE_KEY = "stampRallyMapStationEntryComplete_v1";
+const RALLY_VISIBILITY_STORAGE_KEY = "stampRallyMapVisibility_v1";
 const SEARCH_RESULTS_STORAGE_KEY = "stampRallyMapSearchResults_v1";
 const IGNORED_STATIONS_STORAGE_KEY = "stampRallyMapIgnoredStations_v1";
 
@@ -33,6 +34,75 @@ const openRallyCardIds = new Set();
 const OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter";
 const MIN_AREA_SEARCH_ZOOM = 11;
 const MAX_AREA_SEARCH_RESULTS = 120;
+
+function loadRallyVisibilityStates() {
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem(RALLY_VISIBILITY_STORAGE_KEY) || "{}"
+    );
+    return saved && typeof saved === "object" ? saved : {};
+  } catch (error) {
+    console.warn("ラリー表示状態を読み込めませんでした。", error);
+    return {};
+  }
+}
+
+function saveRallyVisibilityStates(states) {
+  localStorage.setItem(
+    RALLY_VISIBILITY_STORAGE_KEY,
+    JSON.stringify(states)
+  );
+}
+
+function getRallyVisibilityPreference(rallyId) {
+  const states = loadRallyVisibilityStates();
+  return Object.prototype.hasOwnProperty.call(states, rallyId)
+    ? Boolean(states[rallyId])
+    : true;
+}
+
+function setRallyVisibilityPreference(rallyId, visible) {
+  const states = loadRallyVisibilityStates();
+  states[rallyId] = Boolean(visible);
+  saveRallyVisibilityStates(states);
+}
+
+function normalizeAllRallyVisibilityStates() {
+  const states = loadRallyVisibilityStates();
+  let changed = false;
+
+  stampRallies.forEach(rally => {
+    if (!Object.prototype.hasOwnProperty.call(states, rally.id)) {
+      states[rally.id] = false;
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    saveRallyVisibilityStates(states);
+  }
+
+  return states;
+}
+
+function deleteRallyVisibilityPreference(rallyId) {
+  const states = loadRallyVisibilityStates();
+  delete states[rallyId];
+  saveRallyVisibilityStates(states);
+}
+
+function applyStoredRallyVisibility() {
+  stampRallies.forEach(rally => {
+    const layer = rallyLayers[rally.id];
+    if (!layer) return;
+
+    if (getRallyVisibilityPreference(rally.id)) {
+      if (!map.hasLayer(layer)) layer.addTo(map);
+    } else if (map.hasLayer(layer)) {
+      map.removeLayer(layer);
+    }
+  });
+}
 
 function loadRallySettings() {
   try {
@@ -1132,7 +1202,9 @@ function buildLayers() {
       addCheckpointMarker(rally, checkpoint);
     });
 
-    layer.addTo(map);
+    if (getRallyVisibilityPreference(rally.id)) {
+      layer.addTo(map);
+    }
   });
 }
 
@@ -1153,7 +1225,7 @@ function updateVisibleRalliesMasterCheckbox() {
   master.disabled = false;
 
   const selectedCount = rallies.filter(rally =>
-    rallyLayers[rally.id] && map.hasLayer(rallyLayers[rally.id])
+    getRallyVisibilityPreference(rally.id)
   ).length;
 
   master.checked = selectedCount === rallies.length;
@@ -1162,23 +1234,28 @@ function updateVisibleRalliesMasterCheckbox() {
 }
 
 function setAllVisibleRalliesMapVisibility(visible) {
-  const rallies = getViewportFilteredRallies();
+  const visibleRallies = getViewportFilteredRallies();
 
-  rallies.forEach(rally => {
-    const layer = rallyLayers[rally.id];
-    if (!layer) return;
+  // 一括操作時は、地図範囲外を含む全ラリーをまずOFFとして固定する。
+  // これにより、後から地図範囲を広げても未選択ラリーが
+  // 勝手にONへ戻らない。
+  const states = {};
 
-    if (visible) {
-      if (!map.hasLayer(layer)) {
-        layer.addTo(map);
-      }
-    } else if (map.hasLayer(layer)) {
-      map.removeLayer(layer);
-    }
+  stampRallies.forEach(rally => {
+    states[rally.id] = false;
   });
 
+  if (visible) {
+    visibleRallies.forEach(rally => {
+      states[rally.id] = true;
+    });
+  }
+
+  saveRallyVisibilityStates(states);
+  applyStoredRallyVisibility();
   buildRallyDashboard();
 }
+
 
 function buildRallyDashboard() {
   const container = document.getElementById("rallyDashboardList");
@@ -1209,9 +1286,17 @@ function buildRallyDashboard() {
     const visited = rally.checkpoints.filter(cp => cp.visited).length;
     const percent = total === 0 ? 0 : Math.round((visited / total) * 100);
     const stationEntryComplete = isStationEntryComplete(rally.id);
+    const allStationsCompleted = total > 0 && visited === total;
 
     const card = document.createElement("div");
     card.className = "rally-dashboard-card";
+
+    if (stationEntryComplete && allStationsCompleted) {
+      card.classList.add("rally-status-complete");
+    } else if (stationEntryComplete) {
+      card.classList.add("rally-status-entry-complete");
+    }
+
     if (openRallyCardIds.has(rally.id)) {
       card.classList.add("open");
     }
@@ -1268,7 +1353,7 @@ function buildRallyDashboard() {
             type="checkbox"
             class="rally-dashboard-visible"
             data-rally-id="${rally.id}"
-            ${rallyLayers[rally.id] && map.hasLayer(rallyLayers[rally.id]) ? "checked" : ""}
+            ${getRallyVisibilityPreference(rally.id) ? "checked" : ""}
             aria-label="${escapeHtml(rally.name)}を地図に表示"
           >
 
@@ -1278,7 +1363,13 @@ function buildRallyDashboard() {
           </div>
 
           <div class="rally-dashboard-status">
-            ${stationEntryComplete ? '<span class="station-entry-complete-badge">駅登録完了</span>' : ""}
+            ${
+              stationEntryComplete && allStationsCompleted
+                ? '<span class="station-entry-complete-badge station-entry-complete-badge--achieved">駅登録完了・全駅達成</span>'
+                : stationEntryComplete
+                  ? '<span class="station-entry-complete-badge">駅登録完了</span>'
+                  : ""
+            }
           </div>
 
           <div class="rally-dashboard-count">${visited} / ${total}</div>
@@ -1344,12 +1435,18 @@ function buildRallyDashboard() {
       const layer = rallyLayers[rally.id];
       if (!layer) return;
 
-      if (visibleCheckbox.checked) {
-        layer.addTo(map);
-      } else {
-        map.removeLayer(layer);
-      }
+      const states = loadRallyVisibilityStates();
 
+      stampRallies.forEach(item => {
+        if (!Object.prototype.hasOwnProperty.call(states, item.id)) {
+          states[item.id] = false;
+        }
+      });
+
+      states[rally.id] = visibleCheckbox.checked;
+      saveRallyVisibilityStates(states);
+
+      applyStoredRallyVisibility();
       updateVisibleRalliesMasterCheckbox();
     });
 
@@ -1550,6 +1647,7 @@ function createRally() {
 
   stampRallies.push(rally);
   rallyLayers[rally.id] = L.layerGroup().addTo(map);
+  setRallyVisibilityPreference(rally.id, true);
   newlyCreatedEmptyRallyIds.add(rally.id);
 
   saveRallySettings();
@@ -1625,6 +1723,7 @@ function deleteRally(button) {
   newlyCreatedEmptyRallyIds.delete(rallyId);
   openRallyCardIds.delete(rallyId);
   deleteStationEntryCompleteState(rallyId);
+  deleteRallyVisibilityPreference(rallyId);
 
   saveRallySettings();
   saveCustomCheckpoints();
@@ -1683,6 +1782,7 @@ function showRegisteredStation(rallyId, checkpointId) {
   const layer = rallyLayers[rally.id];
 
   if (layer && !map.hasLayer(layer)) {
+    setRallyVisibilityPreference(rally.id, true);
     layer.addTo(map);
     buildFilters();
   }
@@ -2793,6 +2893,7 @@ loadRallySettings();
 loadCustomCheckpoints();
 loadSavedVisitedStates();
 buildLayers();
+applyStoredRallyVisibility();
 buildRallyManager();
 buildFilters();
 buildProgress();

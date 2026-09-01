@@ -1276,3 +1276,28 @@ button, input, select { font: inherit; }
 .existing-rally-sync-button:active {
   transform: translateY(1px);
 }
+
+
+/* Phase 8.19: ラリー状態の色分け */
+.rally-dashboard-card.rally-status-entry-complete {
+  border-color: #f59e0b;
+  box-shadow: inset 4px 0 0 #f59e0b;
+}
+
+.rally-dashboard-card.rally-status-entry-complete .rally-dashboard-header {
+  background: #fffbeb;
+}
+
+.rally-dashboard-card.rally-status-complete {
+  border-color: #16a34a;
+  box-shadow: inset 4px 0 0 #16a34a;
+}
+
+.rally-dashboard-card.rally-status-complete .rally-dashboard-header {
+  background: #f0fdf4;
+}
+
+.station-entry-complete-badge--achieved {
+  background: #dcfce7;
+  color: #166534;
+}
