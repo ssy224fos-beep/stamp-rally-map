@@ -1512,7 +1512,24 @@ function buildFilters() {
 }
 
 function refreshSearchRallySelects() {
-  // 検索候補内のラリー選択欄は検索結果を再表示した際に最新化されます。
+  // 登録駅マーカーのポップアップを最新のラリー一覧で作り直す。
+  stampRallies.forEach(rally => {
+    rally.checkpoints.forEach(checkpoint => {
+      const marker = checkpointMarkers[checkpoint.id];
+      if (marker) {
+        marker.setPopupContent(createPopup(rally, checkpoint));
+      }
+    });
+  });
+
+  // 青い検索候補は popupopen 時にも再生成されるが、
+  // 現在開いている候補にも即時反映させるため再描画する。
+  const savedResults = loadPersistentSearchResults()
+    .filter(result => !isIgnoredStation(result));
+
+  if (savedResults.length > 0) {
+    showAreaSearchMarkers(savedResults, false);
+  }
 }
 
 
@@ -1610,8 +1627,8 @@ function getViewportFilteredRallies() {
 function getRalliesAvailableForStationAddition() {
   return sortRalliesJapanese(
     stampRallies.filter(rally =>
-      rally.checkpoints.length === 0 ||
-      rallyHasCheckpointInCurrentMap(rally)
+      rallyHasCheckpointInCurrentMap(rally) ||
+      isTransientNewEmptyRally(rally)
     )
   );
 }
@@ -1628,6 +1645,23 @@ function buildRallyManager() {
   buildRallyDashboard();
 }
 
+function normalizeRallyNameForDuplicateCheck(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("ja");
+}
+
+function findRallyWithSameName(name, excludeRallyId = null) {
+  const normalized = normalizeRallyNameForDuplicateCheck(name);
+
+  return stampRallies.find(rally =>
+    rally.id !== excludeRallyId &&
+    normalizeRallyNameForDuplicateCheck(rally.name) === normalized
+  );
+}
+
 function createRally() {
   const input = document.getElementById("newRallyName");
   if (!input) return;
@@ -1636,6 +1670,14 @@ function createRally() {
   if (!name) {
     alert("新しいラリー名を入力してください。");
     input.focus();
+    return;
+  }
+
+  const duplicate = findRallyWithSameName(name);
+  if (duplicate) {
+    alert(`「${duplicate.name}」はすでに登録されています。`);
+    input.focus();
+    input.select();
     return;
   }
 
@@ -1677,6 +1719,14 @@ function renameRally(button) {
     return;
   }
 
+  const duplicate = findRallyWithSameName(newName, rallyId);
+  if (duplicate) {
+    alert(`「${duplicate.name}」はすでに登録されています。`);
+    input.focus();
+    input.select();
+    return;
+  }
+
   rally.name = newName;
 
   rally.checkpoints.forEach(checkpoint => {
@@ -1708,6 +1758,8 @@ function deleteRally(button) {
     : `「${rally.name}」を削除しますか？`;
 
   if (!confirm(message)) return;
+
+  map.closePopup();
 
   rally.checkpoints.forEach(checkpoint => {
     removeCheckpointMarker(checkpoint.id, rally.id);
