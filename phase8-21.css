@@ -1,0 +1,30 @@
+/* Phase 8.21: wider right pane and readable rally names */
+:root {
+  --sidebar-width: 430px;
+}
+
+@media (min-width: 821px) {
+  .app-layout {
+    grid-template-columns: minmax(0, 1fr) var(--sidebar-width);
+  }
+
+  .sidebar {
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
+  }
+}
+
+.rally-dashboard-name {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 820px) {
+  .sidebar {
+    width: min(430px, 70vw);
+    min-width: 0;
+  }
+}
